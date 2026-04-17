@@ -29,7 +29,7 @@ static uint32_t last_change[INPUT_COUNT];
 void input_service_init(void)
 {
     for (uint8_t i = 0; i < INPUT_COUNT; i++) {
-        uint8_t val = (HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET) ? 1u : 0u;
+        uint8_t val = (HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET) ? 1U : 0U;
         filtered[i]    = val;
         raw_prev[i]    = val;
         last_change[i] = systick_ms;
@@ -41,7 +41,7 @@ void input_service_process(void)
     uint32_t now = systick_ms;
 
     for (uint8_t i = 0; i < INPUT_COUNT; i++) {
-        uint8_t raw = (HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET) ? 1u : 0u;
+        uint8_t raw = (HAL_GPIO_ReadPin(pins[i].port, pins[i].pin) == GPIO_PIN_SET) ? 1U : 0U;
 
         if (raw != raw_prev[i]) {
             raw_prev[i]    = raw;

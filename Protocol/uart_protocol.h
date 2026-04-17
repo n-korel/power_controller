@@ -14,8 +14,13 @@ typedef struct {
 void uart_protocol_init(void);
 void uart_protocol_process(void);
 
-/* Called from HAL_UART_RxCpltCallback */
+/* Called from HAL_UART_RxCpltCallback (ISR context).
+ * Minimal work: pushes one byte into RX ring and re-arms HAL_UART_Receive_IT.
+ * All parsing and CRC verification happen in uart_protocol_process(). */
 void uart_protocol_rx_byte_cb(void);
+
+/* Called from HAL_UART_TxCpltCallback */
+void uart_tx_cplt_cb(void);
 
 /* TX helpers */
 void uart_send_ack(uint8_t cmd, uint8_t status);

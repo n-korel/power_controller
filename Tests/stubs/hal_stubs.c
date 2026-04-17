@@ -1,4 +1,5 @@
 #include "stm32f0xx_hal.h"
+#include <string.h>
 
 /* ===== GPIO port instances ===== */
 GPIO_TypeDef stub_gpioa = { .tag = 0xA };
@@ -21,10 +22,18 @@ uint32_t hal_gpio_log_count;
 gpio_read_map_entry_t hal_gpio_read_map[HAL_STUB_READ_PIN_MAP_SIZE];
 uint32_t hal_gpio_read_map_count;
 
+/* ===== Cortex-M intrinsic spies ===== */
+uint32_t hal_stub_nvic_reset_count;
+uint32_t hal_stub_set_msp_count;
+uint32_t hal_stub_set_msp_last_value;
+
 void hal_stub_reset(void)
 {
     hal_gpio_log_count = 0;
     hal_gpio_read_map_count = 0;
+    hal_stub_nvic_reset_count = 0;
+    hal_stub_set_msp_count = 0;
+    hal_stub_set_msp_last_value = 0;
 }
 
 void hal_stub_set_pin(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState val)
@@ -85,15 +94,22 @@ HAL_StatusTypeDef HAL_TIM_PWM_Start(TIM_HandleTypeDef *htim, uint32_t Channel)
 HAL_StatusTypeDef HAL_FLASH_Unlock(void)  { return HAL_OK; }
 HAL_StatusTypeDef HAL_FLASH_Lock(void)    { return HAL_OK; }
 
-HAL_StatusTypeDef HAL_FLASH_Program(uint32_t TypeProgram, uint32_t Address, uint64_t Data)
+HAL_StatusTypeDef HAL_FLASH_Program(uint32_t TypeProgram, uintptr_t Address, uint64_t Data)
 {
-    (void)TypeProgram; (void)Address; (void)Data;
+    (void)TypeProgram;
+    /* Host-test: Address points to a RAM buffer provided by the test.
+     * flash_cal.c only writes WORD (32-bit). */
+    uint32_t word = (uint32_t)Data;
+    memcpy((void *)Address, &word, sizeof(word));
     return HAL_OK;
 }
 
 HAL_StatusTypeDef HAL_FLASHEx_Erase(FLASH_EraseInitTypeDef *pEraseInit, uint32_t *PageError)
 {
-    (void)pEraseInit;
+    if (pEraseInit) {
+        /* Erase 128 bytes (enough for flash_cal_t) to 0xFF */
+        memset((void *)pEraseInit->PageAddress, 0xFF, 128);
+    }
     if (PageError) *PageError = 0xFFFFFFFF;
     return HAL_OK;
 }
@@ -103,5 +119,18 @@ HAL_StatusTypeDef HAL_IWDG_Refresh(IWDG_HandleTypeDef *h)
     (void)h;
     return HAL_OK;
 }
+
+void __set_MSP(uint32_t topOfMainStack)
+{
+    hal_stub_set_msp_count++;
+    hal_stub_set_msp_last_value = topOfMainStack;
+}
+
+void NVIC_SystemReset(void)
+{
+    hal_stub_nvic_reset_count++;
+}
+
+void __DSB(void) {}
 
 void Error_Handler(void) {}

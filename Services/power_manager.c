@@ -63,10 +63,26 @@ typedef enum {
 
 static aseq_state_t aseq;
 static uint32_t     aseq_timer;
+/* 1 when amplifier fully active (SDZ=1, MUTE=0). 0 when safe (SDZ=0, MUTE=1).
+ * Used together with (power_state & DOM_AUDIO) to distinguish the
+ * auto-startup "safe-on" state (Rules 6.5: POWER_AUDIO=1 but amp safe)
+ * from the full-on state entered after ASEQ_ON_DONE. */
+static uint8_t      amp_active;
 
 /* ===== Bridge reset SM ===== */
 static uint8_t  bridge_rst_active;
 static uint32_t bridge_rst_timer;
+
+/* ===== Startup SM: non-blocking PGOOD wait (Rules 6.5, §12) =====
+ * Replaces the blocking pre-main-loop wait so HAL_IWDG_Refresh stays in
+ * exactly one place (the end of main loop). */
+typedef enum {
+    STARTUP_IDLE,
+    STARTUP_WAIT_PGOOD,
+} sseq_state_t;
+
+static sseq_state_t sseq;
+static uint32_t     sseq_timer;
 
 /* ===== SUS_S3# auto-start Linux (Rules 8) ===== */
 static uint32_t sus_low_since;
@@ -74,6 +90,8 @@ static uint8_t  sus_low_tracking;
 static uint8_t  pwrbtn_active;
 static uint32_t pwrbtn_timer;
 static uint32_t sus_cooldown_ts;
+
+static void power_auto_startup(void);
 
 /* ===== GPIO helpers ===== */
 static void gpio_domain_set(uint8_t dom, uint8_t on)
@@ -98,10 +116,19 @@ void power_manager_init(void)
     brightness_pwm = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
+    amp_active     = 0;
     bridge_rst_active = 0;
     sus_low_tracking  = 0;
     pwrbtn_active     = 0;
     sus_cooldown_ts   = 0;
+    sseq              = STARTUP_IDLE;
+    sseq_timer        = 0;
+}
+
+void power_startup_begin(void)
+{
+    sseq       = STARTUP_WAIT_PGOOD;
+    sseq_timer = systick_ms;
 }
 
 /* ===== Safe state (Rules 3.2) ===== */
@@ -128,17 +155,20 @@ void power_safe_state(void)
     HAL_GPIO_WritePin(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin, GPIO_PIN_RESET);
 
     /* PWM = 0 */
+    /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
     __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
 
     power_state    = 0;
     brightness_pwm = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
+    amp_active     = 0;
 }
 
 /* ===== Emergency display off (no delays, Rules 6.2) ===== */
 void power_emergency_display_off(void)
 {
+    /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
     __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
     HAL_GPIO_WritePin(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LCD_POWER_ON_GPIO_Port, LCD_POWER_ON_Pin, GPIO_PIN_RESET);
@@ -246,6 +276,9 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_BL: {
+        /* BACKLIGHT_POWER_M uses the same divider as SCALER/LCD (R169..R182, 4.99k/470).
+         * ~12V at the rail -> ~1033mV at ADC input, restored via VDIV_MULT/VDIV_DIV.
+         * SEQ_VERIFY_BL_MV=9000 is compared against the restored rail voltage. */
         uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_BL_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
         uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
         if (vin_mv >= SEQ_VERIFY_BL_MV) {
@@ -263,6 +296,7 @@ static void dseq_process(void)
 
     /* === DOWN === */
     case DSEQ_DN_PWM_ZERO:
+        /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
         brightness_pwm = 0;
         dseq_timer = now;
@@ -315,6 +349,7 @@ static void dseq_process(void)
 
     /* === BL-only OFF (Rules 13.7) === */
     case DSEQ_BLOFF_PWM_ZERO:
+        /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
         brightness_pwm = 0;
         dseq_timer = now;
@@ -373,6 +408,7 @@ static void aseq_process(void)
 
     case ASEQ_ON_DONE:
         HAL_GPIO_WritePin(MUTE_GPIO_Port, MUTE_Pin, GPIO_PIN_RESET);
+        amp_active = 1;
         aseq = ASEQ_IDLE;
         break;
 
@@ -396,6 +432,7 @@ static void aseq_process(void)
     case ASEQ_OFF_POWER:
         gpio_domain_set(DOM_AUDIO, 0);
         power_state &= (uint8_t)~DOM_AUDIO;
+        amp_active = 0;
         aseq = ASEQ_OFF_DONE;
         break;
 
@@ -440,6 +477,8 @@ static void sus_s3_process(void)
     if (sus_cooldown_ts && (now - sus_cooldown_ts) < SUS_S3_COOLDOWN_MS)
         return;
 
+    /* cppcheck-suppress knownConditionTrueFalse ; input_get_sus_s3() is a runtime input,
+     *                                             cppcheck sees only the test mock value. */
     if (!input_get_sus_s3()) {
         /* SUS_S3# is LOW */
         if (!sus_low_tracking) {
@@ -474,6 +513,9 @@ void power_set_brightness(uint16_t pwm)
 void power_reset_bridge(void)
 {
     if (!(power_state & DOM_SCALER) || !(power_state & DOM_LCD)) return;
+    /* Do not interfere with active display sequencing or an in-flight pulse */
+    if (dseq != DSEQ_IDLE) return;
+    if (bridge_rst_active) return;
     HAL_GPIO_WritePin(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin, GPIO_PIN_RESET);
     bridge_rst_active = 1;
     bridge_rst_timer  = systick_ms;
@@ -498,7 +540,7 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         return 1;
 
     /* Simple domains (ETH1, ETH2, TOUCH) — direct control */
-    uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
+    static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
     for (uint8_t i = 0; i < 3; i++) {
         uint8_t dom = simple_doms[i];
         if (!(mask & dom)) continue;
@@ -538,12 +580,20 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         }
     }
 
-    /* Audio — via sequencing SM */
+    /* Audio — via sequencing SM (Rules §6.5, §9).
+     * Three distinct start states are possible:
+     *   OFF          (power_state=0, amp_active=0) -> full ON: POWER_AUDIO->SDZ->MUTE
+     *   safe-on      (power_state=1, amp_active=0) -> partial ON: SDZ->MUTE only
+     *                (entered by power_auto_startup per §6.5)
+     *   full-on      (power_state=1, amp_active=1) -> already active, no-op */
     if ((mask & DOM_AUDIO) && aseq == ASEQ_IDLE) {
-        if ((value & DOM_AUDIO) && !(power_state & DOM_AUDIO))
-            aseq = ASEQ_ON_POWER;
-        else if (!(value & DOM_AUDIO) && (power_state & DOM_AUDIO))
+        if (value & DOM_AUDIO) {
+            if (!amp_active) {
+                aseq = (power_state & DOM_AUDIO) ? ASEQ_ON_SDZ : ASEQ_ON_POWER;
+            }
+        } else if (power_state & DOM_AUDIO) {
             aseq = ASEQ_OFF_MUTE;
+        }
     }
 
     return 0;
@@ -558,6 +608,7 @@ void power_force_off_domains(uint16_t domain_mask)
         gpio_domain_set(DOM_AUDIO, 0);
         power_state &= (uint8_t)~DOM_AUDIO;
         aseq = ASEQ_IDLE;
+        amp_active = 0;
     }
 
     /* Display emergency shutdown */
@@ -575,25 +626,41 @@ void power_force_off_domains(uint16_t domain_mask)
     }
 }
 
-void power_auto_startup(void)
+static void power_auto_startup(void)
 {
-    /* SCALER + LCD (no BL), TOUCH, AUDIO (safe mode) per Rules 6.5 */
+    /* Rules §6.5 / README §13.6 target state after PGOOD=HIGH:
+     *   SCALER=ON, LCD=ON, BACKLIGHT=OFF, TOUCH=ON, AUDIO=ON (amp safe).
+     * DOM_AUDIO bit mirrors POWER_AUDIO=1; SDZ=0/MUTE=1 are kept from init,
+     * and amp_active stays 0 so POWER_CTRL AUDIO=ON from Q7 runs only the
+     * partial SDZ->MUTE tail of ASEQ (Rules §9). */
     dseq_up_with_bl = 0;
     dseq = DSEQ_UP_SCALER_ON;
 
-    /* TOUCH on directly */
     gpio_domain_set(DOM_TOUCH, 1);
     power_state |= DOM_TOUCH;
 
-    /* AUDIO power on, but SDZ=0, MUTE=1 (safe) */
     gpio_domain_set(DOM_AUDIO, 1);
     power_state |= DOM_AUDIO;
-    /* SDZ and MUTE already in safe state from init */
+}
+
+/* ===== Startup SM (Rules 6.5): non-blocking PGOOD wait + auto-start ===== */
+static void sseq_process(void)
+{
+    if (sseq != STARTUP_WAIT_PGOOD) return;
+
+    if (input_get_pgood()) {
+        sseq = STARTUP_IDLE;
+        power_auto_startup();
+    } else if ((systick_ms - sseq_timer) >= PGOOD_TIMEOUT_MS) {
+        sseq = STARTUP_IDLE;
+        fault_set_flag(FAULT_PGOOD_LOST);
+    }
 }
 
 /* ===== Main-loop process ===== */
 void power_manager_process(void)
 {
+    sseq_process();
     dseq_process();
     aseq_process();
     bridge_rst_process();

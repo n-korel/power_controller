@@ -49,7 +49,7 @@ static uint32_t sw_crc32(const uint8_t *data, uint32_t len)
         crc ^= data[i];
         for (uint8_t bit = 0; bit < 8; bit++) {
             if (crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320u;
+                crc = (crc >> 1) ^ 0xEDB88320U;
             else
                 crc >>= 1;
         }
@@ -99,7 +99,7 @@ void test_crc8_get_status_response(void)
         buf[2 + i] = i;
 
     uint8_t ref = 0;
-    for (uint8_t i = 0; i < sizeof(buf); i++)
+    for (size_t i = 0; i < sizeof(buf); i++)
         ref = crc8_table[ref ^ buf[i]];
 
     TEST_ASSERT_EQUAL_HEX8(ref, crc8_calc(buf, sizeof(buf)));
@@ -114,7 +114,7 @@ void test_crc8_max_length_data(void)
         buf[2 + i] = (uint8_t)(0xA5 ^ i);
 
     uint8_t ref = 0;
-    for (uint16_t i = 0; i < sizeof(buf); i++)
+    for (size_t i = 0; i < sizeof(buf); i++)
         ref = crc8_table[ref ^ buf[i]];
 
     TEST_ASSERT_EQUAL_HEX8(ref, crc8_calc(buf, (uint8_t)sizeof(buf)));
@@ -125,20 +125,20 @@ void test_crc8_max_length_data(void)
 void test_crc32_known_vector_123456789(void)
 {
     const uint8_t v[] = "123456789";
-    TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, sw_crc32(v, 9));
+    TEST_ASSERT_EQUAL_HEX32(0xCBF43926U, sw_crc32(v, 9));
 }
 
 void test_crc32_empty_input(void)
 {
     const uint8_t v[] = { 0x00 };
-    TEST_ASSERT_EQUAL_HEX32(0x00000000u, sw_crc32(v, 0));
+    TEST_ASSERT_EQUAL_HEX32(0x00000000U, sw_crc32(v, 0));
 }
 
 void test_crc32_single_zero_byte(void)
 {
     /* CRC-32 of single 0x00 byte = 0xD202EF8D (standard value) */
     const uint8_t v[] = { 0x00 };
-    TEST_ASSERT_EQUAL_HEX32(0xD202EF8Du, sw_crc32(v, 1));
+    TEST_ASSERT_EQUAL_HEX32(0xD202EF8DU, sw_crc32(v, 1));
 }
 
 void test_crc32_flash_cal_structure(void)

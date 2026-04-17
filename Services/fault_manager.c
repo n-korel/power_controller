@@ -95,8 +95,10 @@ void fault_manager_process(void)
             uint16_t val = adc_get_voltage_mv(i);
             if (val < v_thresh_min[i] || val > v_thresh_max[i]) {
                 v_consec[i]++;
-                if (v_consec[i] >= FAULT_CONFIRM_COUNT)
+                if (v_consec[i] >= FAULT_CONFIRM_COUNT) {
                     apply_fault_policy(v_fault_bits[i]);
+                    v_consec[i] = 0;
+                }
             } else {
                 v_consec[i] = 0;
             }
@@ -108,8 +110,10 @@ void fault_manager_process(void)
     if (pstate & DOM_LCD) {
         if (adc_get_current_ma(0) > (int16_t)i_thresh_max[0]) {
             i_consec[0]++;
-            if (i_consec[0] >= FAULT_CONFIRM_COUNT)
+            if (i_consec[0] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_LCD);
+                i_consec[0] = 0;
+            }
         } else {
             i_consec[0] = 0;
         }
@@ -119,8 +123,10 @@ void fault_manager_process(void)
     if (pstate & DOM_BACKLIGHT) {
         if (adc_get_current_ma(1) > (int16_t)i_thresh_max[1]) {
             i_consec[1]++;
-            if (i_consec[1] >= FAULT_CONFIRM_COUNT)
+            if (i_consec[1] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_BACKLIGHT);
+                i_consec[1] = 0;
+            }
         } else {
             i_consec[1] = 0;
         }
@@ -130,8 +136,10 @@ void fault_manager_process(void)
     if (pstate & DOM_SCALER) {
         if (adc_get_current_ma(2) > (int16_t)i_thresh_max[2]) {
             i_consec[2]++;
-            if (i_consec[2] >= FAULT_CONFIRM_COUNT)
+            if (i_consec[2] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_SCALER);
+                i_consec[2] = 0;
+            }
         } else {
             i_consec[2] = 0;
         }
@@ -142,8 +150,10 @@ void fault_manager_process(void)
         for (uint8_t ch = 3; ch < 5; ch++) {
             if (adc_get_current_ma(ch) > (int16_t)i_thresh_max[ch]) {
                 i_consec[ch]++;
-                if (i_consec[ch] >= FAULT_CONFIRM_COUNT)
+                if (i_consec[ch] >= FAULT_CONFIRM_COUNT) {
                     apply_fault_policy(FAULT_AUDIO);
+                    i_consec[ch] = 0;
+                }
             } else {
                 i_consec[ch] = 0;
             }
@@ -154,8 +164,10 @@ void fault_manager_process(void)
     if (pstate & DOM_AUDIO) {
         if (!input_get_faultz()) {
             faultz_consec++;
-            if (faultz_consec >= FAULT_CONFIRM_COUNT)
+            if (faultz_consec >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_AMP_FAULTZ);
+                faultz_consec = 0;
+            }
         } else {
             faultz_consec = 0;
         }
@@ -166,8 +178,10 @@ void fault_manager_process(void)
     /* --- PGOOD loss --- */
     if (!input_get_pgood() && pstate) {
         pgood_consec++;
-        if (pgood_consec >= FAULT_CONFIRM_COUNT)
+        if (pgood_consec >= FAULT_CONFIRM_COUNT) {
             apply_fault_policy(FAULT_PGOOD_LOST);
+            pgood_consec = 0;
+        }
     } else {
         pgood_consec = 0;
     }

@@ -118,21 +118,10 @@ int main(void)
 
   uart_protocol_init();
 
-  /* Non-blocking wait for PGOOD (Rules 6.5) */
-  {
-    uint32_t t0 = systick_ms;
-    while (!input_get_pgood()) {
-      input_service_process();
-      HAL_IWDG_Refresh(&hiwdg);
-      if ((systick_ms - t0) >= PGOOD_TIMEOUT_MS) {
-        fault_set_flag(FAULT_PGOOD_LOST);
-        break;
-      }
-    }
-  }
-
-  if (!fault_get_flags())
-    power_auto_startup();
+  /* Arm non-blocking PGOOD wait (Rules 6.5 + §12 IWDG invariant):
+   * polled inside power_manager_process() in the main loop, so IWDG refresh
+   * stays in exactly one place. */
+  power_startup_begin();
   /* USER CODE END 2 */
 
   /* Infinite loop */

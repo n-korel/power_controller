@@ -20,17 +20,21 @@ UNITY_URL  = https://raw.githubusercontent.com/ThrowTheSwitch/Unity/master/src
 
 BUILD_DIR  = Tests/build
 STUBS_SRC  = Tests/stubs/hal_stubs.c
+PTH_SRC    = Tests/stubs/power_test_helpers.c
 
 # All test executables
 TESTS = test_crc test_adc_conversion test_protocol_parser \
         test_power_ctrl test_fault_policy test_input_packing \
-        test_invariants
+        test_invariants test_safe_state test_power_sequence \
+        test_audio_sequence test_sus_s3 test_bridge_reset \
+        test_flash_cal test_bootloader test_brightness \
+        test_startup_sm
 
 TEST_BINS = $(addprefix $(BUILD_DIR)/, $(TESTS))
 
-.PHONY: all clean unity_fetch $(TESTS)
+.PHONY: all clean unity_fetch $(TESTS) contract_check
 
-all: unity_fetch $(TEST_BINS)
+all: contract_check unity_fetch $(TEST_BINS)
 	@echo "========================================="
 	@echo " Running all tests"
 	@echo "========================================="
@@ -44,6 +48,10 @@ all: unity_fetch $(TEST_BINS)
 	@echo "========================================="
 	@echo " All test suites executed"
 	@echo "========================================="
+
+# Machine-readable contract vs code check (YAML vs config.h)
+contract_check:
+	@python3 Tests/contract_check.py
 
 # Individual test targets
 $(TESTS): %: $(BUILD_DIR)/%
@@ -83,6 +91,33 @@ $(BUILD_DIR)/test_input_packing: Tests/test_input_packing.c $(STUBS_SRC) $(UNITY
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_invariants: Tests/test_invariants.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_safe_state: Tests/test_safe_state.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_power_sequence: Tests/test_power_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_audio_sequence: Tests/test_audio_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_sus_s3: Tests/test_sus_s3.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_bridge_reset: Tests/test_bridge_reset.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_flash_cal: Tests/test_flash_cal.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_bootloader: Tests/test_bootloader.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-int-to-pointer-cast -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_brightness: Tests/test_brightness.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_startup_sm: Tests/test_startup_sm.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 clean:

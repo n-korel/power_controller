@@ -13,7 +13,7 @@ static uint32_t sw_crc32(const uint8_t *data, uint32_t len)
         crc ^= data[i];
         for (uint8_t bit = 0; bit < 8; bit++) {
             if (crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320u;
+                crc = (crc >> 1) ^ 0xEDB88320U;
             else
                 crc >>= 1;
         }

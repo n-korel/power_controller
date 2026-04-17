@@ -1,0 +1,17 @@
+---
+# clang-tidy overrides for host-side unit tests.
+# Inherits from the repo-root .clang-tidy and relaxes rules that conflict
+# with stub-based test patterns.
+#
+# - readability-redundant-declaration: tests define stubs for functions
+#   declared in firmware headers (e.g. uart_tx_busy). The stub definition
+#   precedes the header #include, which clang-tidy flags as redundant.
+# - readability-inconsistent-declaration-parameter-name: stubs ignore args
+#   via (void)arg and use short local names; parameter names in the header
+#   (idx/min_val/max_val) are not observable by the stub.
+InheritParentConfig: true
+
+Checks: >
+  -readability-redundant-declaration,
+  -readability-inconsistent-declaration-parameter-name
+...

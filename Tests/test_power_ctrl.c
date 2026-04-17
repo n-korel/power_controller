@@ -26,7 +26,7 @@ volatile uint32_t systick_ms;
 #include "power_manager.c"
 
 /* Find the last GPIO write record targeting a specific pin */
-static int last_gpio_write(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState *out)
+static int last_gpio_write(const GPIO_TypeDef *port, uint16_t pin, GPIO_PinState *out)
 {
     for (int32_t i = (int32_t)hal_gpio_log_count - 1; i >= 0; i--) {
         if (hal_gpio_log[i].port == port && hal_gpio_log[i].pin == pin) {

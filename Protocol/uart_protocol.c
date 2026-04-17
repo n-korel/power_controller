@@ -55,7 +55,19 @@ static uint8_t  p_crc_rx;
 static uint32_t p_last_byte_ts;
 static volatile uint8_t p_ready;
 
-static volatile uint8_t rx_byte;
+/* ===== RX ring buffer (Rules §1.1, invariant 8: keep ISR minimal) =====
+ * ISR only pushes one byte here and re-arms HAL_UART_Receive_IT.
+ * Parser state machine + CRC verification run in main-loop context
+ * (uart_protocol_process). Size = 128 (power of two → mask on index,
+ * avoids div on Cortex-M0 which has no hardware divider). */
+#define UART_RX_RING_SIZE  128U
+#define UART_RX_RING_MASK  (UART_RX_RING_SIZE - 1U)
+
+static volatile uint8_t  rx_ring[UART_RX_RING_SIZE];
+static volatile uint16_t rx_head;        /* written by ISR only */
+static volatile uint16_t rx_tail;        /* written by main loop only */
+static volatile uint8_t  rx_overflow;    /* set by ISR when ring is full */
+static volatile uint8_t  rx_byte;        /* HAL_UART_Receive_IT target */
 
 /* TX buffer: STX + CMD + LEN + DATA(max64) + CRC + ETX = 69 max */
 static uint8_t  tx_buf[PROTO_MAX_DATA + 5];
@@ -67,37 +79,58 @@ void uart_protocol_init(void)
     p_state = PS_WAIT_STX;
     p_ready = 0;
     tx_busy_flag = 0;
+    rx_head = 0;
+    rx_tail = 0;
+    rx_overflow = 0;
     HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
-/* ===== RX byte callback (from ISR) ===== */
+/* ===== RX byte callback (from ISR) =====
+ * Minimal: push one byte into ring and re-arm RX. All parsing/CRC runs
+ * in main loop. On ring-full, byte is dropped and overflow flag is set;
+ * main loop will flush the ring and reset the parser to re-sync on STX. */
 void uart_protocol_rx_byte_cb(void)
+{
+    uint16_t head = rx_head;
+    uint16_t next = (uint16_t)((head + 1U) & UART_RX_RING_MASK);
+
+    if (next == rx_tail) {
+        rx_overflow = 1;
+    } else {
+        rx_ring[head] = rx_byte;
+        rx_head = next;
+    }
+
+    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
+}
+
+/* ===== Parser step (main-loop context) ===== */
+static void parser_feed(uint8_t b)
 {
     uint32_t now = systick_ms;
 
-    /* Interbyte timeout (10 ms) or packet timeout (50 ms) — reset parser */
+    /* Interbyte timeout (10 ms) — reset parser if too long since last byte */
     if (p_state != PS_WAIT_STX) {
-        uint32_t elapsed = now - p_last_byte_ts;
-        if (elapsed > UART_INTERBYTE_TIMEOUT_MS)
+        if ((now - p_last_byte_ts) > UART_INTERBYTE_TIMEOUT_MS)
             p_state = PS_WAIT_STX;
     }
     p_last_byte_ts = now;
 
     switch (p_state) {
     case PS_WAIT_STX:
-        if (rx_byte == PROTO_STX) {
+        if (b == PROTO_STX) {
             p_state    = PS_READ_CMD;
             p_data_cnt = 0;
         }
         break;
 
     case PS_READ_CMD:
-        p_pkt.cmd = rx_byte;
+        p_pkt.cmd = b;
         p_state   = PS_READ_LEN;
         break;
 
     case PS_READ_LEN:
-        p_pkt.len = rx_byte;
+        p_pkt.len = b;
         if (p_pkt.len == 0)
             p_state = PS_READ_CRC;
         else if (p_pkt.len > PROTO_MAX_DATA)
@@ -107,19 +140,18 @@ void uart_protocol_rx_byte_cb(void)
         break;
 
     case PS_READ_DATA:
-        p_pkt.data[p_data_cnt++] = rx_byte;
+        p_pkt.data[p_data_cnt++] = b;
         if (p_data_cnt >= p_pkt.len)
             p_state = PS_READ_CRC;
         break;
 
     case PS_READ_CRC:
-        p_crc_rx = rx_byte;
+        p_crc_rx = b;
         p_state  = PS_WAIT_ETX;
         break;
 
     case PS_WAIT_ETX:
-        if (rx_byte == PROTO_ETX) {
-            /* Verify CRC: computed over [CMD][LEN][DATA...] */
+        if (b == PROTO_ETX) {
             uint8_t crc_buf[PROTO_MAX_DATA + 2];
             crc_buf[0] = p_pkt.cmd;
             crc_buf[1] = p_pkt.len;
@@ -133,8 +165,6 @@ void uart_protocol_rx_byte_cb(void)
         p_state = PS_WAIT_STX;
         break;
     }
-
-    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
 /* ===== TX ===== */
@@ -269,7 +299,7 @@ static void handle_set_thresholds(void)
     uint16_t mask = (uint16_t)p_pkt.data[0] | ((uint16_t)p_pkt.data[1] << 8);
 
     /* Reject unknown bits (only 0-3 for voltages, 8-12 for currents) */
-    const uint16_t valid_mask = 0x1F0Fu;
+    const uint16_t valid_mask = 0x1F0FU;
     if (mask & ~valid_mask) {
         uart_send_ack(CMD_SET_THRESHOLDS, 1);
         return;
@@ -280,7 +310,7 @@ static void handle_set_thresholds(void)
 
     /* Bits 0-3: voltage thresholds (pair min+max, 4 bytes each) */
     for (uint8_t bit = 0; bit < 4; bit++) {
-        if (!(mask & (1u << bit))) continue;
+        if (!(mask & (1U << bit))) continue;
         if ((idx + 4) > p_pkt.len) { ok = 0; break; }
         uint16_t mn = (uint16_t)p_pkt.data[idx]   | ((uint16_t)p_pkt.data[idx+1] << 8);
         uint16_t mx = (uint16_t)p_pkt.data[idx+2] | ((uint16_t)p_pkt.data[idx+3] << 8);
@@ -292,7 +322,7 @@ static void handle_set_thresholds(void)
     /* Bits 8-12: current thresholds (single max value, 2 bytes each) */
     if (ok) {
         for (uint8_t bit = 8; bit <= 12; bit++) {
-            if (!(mask & (1u << bit))) continue;
+            if (!(mask & (1U << bit))) continue;
             if ((idx + 2) > p_pkt.len) { ok = 0; break; }
             uint16_t mx = (uint16_t)p_pkt.data[idx] | ((uint16_t)p_pkt.data[idx+1] << 8);
             idx += 2;
@@ -320,7 +350,21 @@ static void handle_calibrate_offset(void)
 /* ===== Main-loop process ===== */
 void uart_protocol_process(void)
 {
-    /* Timeout check */
+    /* Drain RX ring buffer and run parser. If ISR signalled overflow,
+     * drop pending bytes and reset parser to re-sync on next STX. */
+    if (rx_overflow) {
+        rx_overflow = 0;
+        rx_tail = rx_head;
+        p_state = PS_WAIT_STX;
+    } else {
+        while (rx_tail != rx_head) {
+            uint8_t b = rx_ring[rx_tail];
+            rx_tail = (uint16_t)((rx_tail + 1U) & UART_RX_RING_MASK);
+            parser_feed(b);
+        }
+    }
+
+    /* Packet timeout (50 ms) — drop half-parsed packet after idle period */
     if (p_state != PS_WAIT_STX) {
         if ((systick_ms - p_last_byte_ts) > UART_PACKET_TIMEOUT_MS)
             p_state = PS_WAIT_STX;

@@ -1,0 +1,22 @@
+schema_version: 1
+count: 14
+vref_mv: 2500
+resolution_bits: 12
+alignment: right
+raw_to_mv:
+  formula: "mv = raw * 2500 / 4096"
+channels:
+  - {rank: 1,  dma_idx: 0,  pin: PA0, adc_in: ADC_IN0,  name: LCD_CURRENT_M,     config_adc_idx: ADC_IDX_LCD_CURRENT}
+  - {rank: 2,  dma_idx: 1,  pin: PA1, adc_in: ADC_IN1,  name: BL_CURRENT_M,      config_adc_idx: ADC_IDX_BL_CURRENT}
+  - {rank: 3,  dma_idx: 2,  pin: PA4, adc_in: ADC_IN4,  name: SCALER_CURRENT_M,  config_adc_idx: ADC_IDX_SCALER_CURRENT}
+  - {rank: 4,  dma_idx: 3,  pin: PA5, adc_in: ADC_IN5,  name: AUDIO_L_CURRENT_M, config_adc_idx: ADC_IDX_AUDIO_L_CURRENT}
+  - {rank: 5,  dma_idx: 4,  pin: PA6, adc_in: ADC_IN6,  name: AUDIO_R_CURRENT_M, config_adc_idx: ADC_IDX_AUDIO_R_CURRENT}
+  - {rank: 6,  dma_idx: 5,  pin: PA7, adc_in: ADC_IN7,  name: LCD_POWER_M,       config_adc_idx: ADC_IDX_LCD_POWER}
+  - {rank: 7,  dma_idx: 6,  pin: PB0, adc_in: ADC_IN8,  name: BL_POWER_M,        config_adc_idx: ADC_IDX_BL_POWER}
+  - {rank: 8,  dma_idx: 7,  pin: PB1, adc_in: ADC_IN9,  name: SCALER_POWER_M,    config_adc_idx: ADC_IDX_SCALER_POWER}
+  - {rank: 9,  dma_idx: 8,  pin: PC0, adc_in: ADC_IN10, name: V24_M,             config_adc_idx: ADC_IDX_V24}
+  - {rank: 10, dma_idx: 9,  pin: PC1, adc_in: ADC_IN11, name: V12_M,             config_adc_idx: ADC_IDX_V12}
+  - {rank: 11, dma_idx: 10, pin: PC2, adc_in: ADC_IN12, name: V5_M,              config_adc_idx: ADC_IDX_V5}
+  - {rank: 12, dma_idx: 11, pin: PC3, adc_in: ADC_IN13, name: V3V3_M,            config_adc_idx: ADC_IDX_V3V3}
+  - {rank: 13, dma_idx: 12, pin: PC4, adc_in: ADC_IN14, name: TEMP0_M,           config_adc_idx: ADC_IDX_TEMP0}
+  - {rank: 14, dma_idx: 13, pin: PC5, adc_in: ADC_IN15, name: TEMP1_M,           config_adc_idx: ADC_IDX_TEMP1}

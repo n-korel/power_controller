@@ -270,6 +270,81 @@ void test_set_current_threshold(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_LCD);
 }
 
+/* ===== Threshold input validation (fault_set_threshold contract) ===== */
+
+void test_set_threshold_idx_out_of_range_is_noop(void)
+{
+    /* idx >= 9 must not corrupt any threshold array. Defaults for V24 stay in effect. */
+    fault_set_threshold(9,   1, 2);
+    fault_set_threshold(10,  1, 2);
+    fault_set_threshold(255, 1, 2);
+
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[0] = 24000; /* nominal, within default 20000..26000 */
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
+
+    mock_voltage_mv[0] = 30000; /* > default max */
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+}
+
+void test_set_threshold_min_ge_max_makes_range_always_invalid(void)
+{
+    /* fault_manager does not validate min<max (that's the protocol layer's job).
+       With inverted range (min > max), every reading will be "out of range" and
+       confirm a fault after FAULT_CONFIRM_COUNT cycles. */
+    fault_set_threshold(0, 27000, 24000);
+
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[0] = 25000; /* would be valid under defaults */
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+}
+
+/* ===== Reserved-bit faults don't cascade (Rules 7.3) ===== */
+
+void test_fault_touch_latched_without_shutdown(void)
+{
+    /* FAULT_TOUCH is a reserved bit (Rules 7.2): latched, but no domain shutdown. */
+    fault_set_flag(FAULT_TOUCH);
+
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_TOUCH);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_force_off_call_count);
+    TEST_ASSERT_EQUAL_HEX16(0, mock_force_off_called_with);
+}
+
+void test_fault_eth1_eth2_latched_without_shutdown(void)
+{
+    fault_set_flag(FAULT_ETH1);
+    fault_set_flag(FAULT_ETH2);
+
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH1);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH2);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_force_off_call_count);
+    TEST_ASSERT_EQUAL_HEX16(0, mock_force_off_called_with);
+}
+
+/* ===== Current threshold boundary (strict `>` check) ===== */
+
+void test_current_at_and_below_threshold_no_fault(void)
+{
+    /* Check is strict `>`: value == threshold and 95% of threshold must not confirm. */
+    mock_power_state = DOM_LCD;
+
+    mock_current_ma[0] = (int16_t)THRESH_I_LCD_MAX; /* exactly 100% */
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_LCD);
+
+    mock_current_ma[0] = (int16_t)(THRESH_I_LCD_MAX * 95 / 100); /* 95% */
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_LCD);
+
+    mock_current_ma[0] = (int16_t)THRESH_I_LCD_MAX + 1; /* just above */
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_LCD);
+}
+
 /* ===== Conditional checks ===== */
 
 void test_voltage_not_checked_when_all_off(void)
@@ -317,6 +392,11 @@ int main(void)
     RUN_TEST(test_fault_internal_shuts_all);
     RUN_TEST(test_set_voltage_threshold);
     RUN_TEST(test_set_current_threshold);
+    RUN_TEST(test_set_threshold_idx_out_of_range_is_noop);
+    RUN_TEST(test_set_threshold_min_ge_max_makes_range_always_invalid);
+    RUN_TEST(test_fault_touch_latched_without_shutdown);
+    RUN_TEST(test_fault_eth1_eth2_latched_without_shutdown);
+    RUN_TEST(test_current_at_and_below_threshold_no_fault);
     RUN_TEST(test_voltage_not_checked_when_all_off);
     RUN_TEST(test_current_only_checked_for_active_domain);
     return UNITY_END();

@@ -51,19 +51,19 @@ typedef struct {
     } Instance_data;
 } TIM_HandleTypeDef;
 
-#define TIM_CHANNEL_1  0x00000000u
+#define TIM_CHANNEL_1  0x00000000U
 
 #define __HAL_TIM_SET_COMPARE(__HANDLE__, __CHANNEL__, __COMPARE__) \
     ((__HANDLE__)->Instance_data.CCR1 = (__COMPARE__))
 
 /* ===== FLASH ===== */
-#define FLASH_TYPEERASE_PAGES  0x00u
-#define FLASH_TYPEPROGRAM_WORD 0x02u
+#define FLASH_TYPEERASE_PAGES  0x00U
+#define FLASH_TYPEPROGRAM_WORD 0x02U
 
 typedef struct {
-    uint32_t TypeErase;
-    uint32_t PageAddress;
-    uint32_t NbPages;
+    uint32_t  TypeErase;
+    uintptr_t PageAddress; /* widened for 64-bit host tests */
+    uint32_t  NbPages;
 } FLASH_EraseInitTypeDef;
 
 /* ===== IWDG ===== */
@@ -104,13 +104,18 @@ HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *huart, uint8_t *pData
 HAL_StatusTypeDef HAL_TIM_PWM_Start(TIM_HandleTypeDef *htim, uint32_t Channel);
 HAL_StatusTypeDef HAL_FLASH_Unlock(void);
 HAL_StatusTypeDef HAL_FLASH_Lock(void);
-HAL_StatusTypeDef HAL_FLASH_Program(uint32_t TypeProgram, uint32_t Address, uint64_t Data);
+HAL_StatusTypeDef HAL_FLASH_Program(uint32_t TypeProgram, uintptr_t Address, uint64_t Data);
 HAL_StatusTypeDef HAL_FLASHEx_Erase(FLASH_EraseInitTypeDef *pEraseInit, uint32_t *PageError);
 HAL_StatusTypeDef HAL_IWDG_Refresh(IWDG_HandleTypeDef *hiwdg);
 
-/* Cortex-M stubs */
-static inline void __set_MSP(uint32_t topOfMainStack) { (void)topOfMainStack; }
-static inline void NVIC_SystemReset(void) {}
+/* Cortex-M stubs (instrumented for bootloader tests) */
+void __set_MSP(uint32_t topOfMainStack);
+void NVIC_SystemReset(void);
+void __DSB(void);
+
+extern uint32_t hal_stub_nvic_reset_count;
+extern uint32_t hal_stub_set_msp_count;
+extern uint32_t hal_stub_set_msp_last_value;
 
 /* Error handler (from main.h) */
 void Error_Handler(void);

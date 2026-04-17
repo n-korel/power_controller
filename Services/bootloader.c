@@ -15,12 +15,13 @@ void bootloader_check(void)
     if (boot_magic == SRAM_MAGIC_VALUE) {
         boot_magic = 0;
 
-        uint32_t *vec = (uint32_t *)ROM_BOOTLOADER_ADDR;
+        /* Cast via uintptr_t: uint32_t on Cortex-M0, uint64_t on host
+         * (clang-tidy static analysis). Identical binary on the MCU. */
+        uint32_t *vec = (uint32_t *)(uintptr_t)ROM_BOOTLOADER_ADDR;
         uint32_t sp   = vec[0];
-        uint32_t pc   = vec[1];
 
         __set_MSP(sp);
-        void (*jump)(void) = (void (*)(void))pc;
+        void (*jump)(void) = (void (*)(void))(uintptr_t)vec[1];
         jump();
 
         while (1) {}

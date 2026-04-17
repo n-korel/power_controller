@@ -216,6 +216,64 @@ void test_temp_always_returns_minus32768(void)
     TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(1));
 }
 
+/* Rules 2.4: NTC not installed — getter returns -32768 regardless of idx. */
+void test_temp_getter_ignores_idx_for_all_values(void)
+{
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(2));
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(13));
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(100));
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(255));
+}
+
+/* ===== Offset setter bounds (ch < CURRENT_CHANNELS) ===== */
+
+void test_set_offset_out_of_range_ch_is_noop(void)
+{
+    uint16_t def = default_offset_raw();
+
+    /* Valid channels pre-seeded to default by init. Writes to ch >= 5 must not
+       corrupt valid-channel offsets nor crash. */
+    adc_set_current_offset(5,   1234);
+    adc_set_current_offset(10,  4095);
+    adc_set_current_offset(255, 0);
+
+    for (uint8_t ch = 0; ch < CURRENT_CHANNELS; ch++) {
+        TEST_ASSERT_EQUAL_UINT16(def, adc_get_current_offset(ch));
+    }
+
+    /* Getter on out-of-range ch returns the default offset (safe fallback). */
+    TEST_ASSERT_EQUAL_UINT16(def, adc_get_current_offset(5));
+    TEST_ASSERT_EQUAL_UINT16(def, adc_get_current_offset(255));
+}
+
+/* ===== Current drift smoothed by sliding window ===== */
+
+void test_current_drift_averaged_over_window(void)
+{
+    /* Feed 8 increasing raw samples on the LCD current channel; the window holds
+       all of them, and the reported current reflects the MEAN — not the last one. */
+    uint16_t off = default_offset_raw();
+
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < ADC_WINDOW_SIZE; i++) {
+        uint16_t raw = off + 100U + i * 10U; /* drift upward */
+        dma_buf[ADC_IDX_LCD_CURRENT] = raw;
+        adc_service_process();
+        sum += raw;
+    }
+
+    uint16_t expected_avg = (uint16_t)(sum / ADC_WINDOW_SIZE);
+    TEST_ASSERT_EQUAL_UINT16(expected_avg, adc_get_raw_avg(ADC_IDX_LCD_CURRENT));
+
+    /* Reported mA is derived from the averaged raw, not from the latest sample. */
+    uint32_t adc_mv    = (uint32_t)expected_avg * ADC_VREF_MV / ADC_RESOLUTION;
+    uint32_t offset_mv = (uint32_t)off          * ADC_VREF_MV / ADC_RESOLUTION;
+    int32_t  diff_mv   = (int32_t)adc_mv - (int32_t)offset_mv;
+    int16_t  expected_ma = (int16_t)(diff_mv * 1000 / (int32_t)CURRENT_SENSITIVITY_MV_PER_A);
+
+    TEST_ASSERT_EQUAL_INT16(expected_ma, adc_get_current_ma(0));
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -238,5 +296,8 @@ int main(void)
     RUN_TEST(test_voltage_getter_out_of_range);
     RUN_TEST(test_current_getter_out_of_range);
     RUN_TEST(test_temp_always_returns_minus32768);
+    RUN_TEST(test_temp_getter_ignores_idx_for_all_values);
+    RUN_TEST(test_set_offset_out_of_range_ch_is_noop);
+    RUN_TEST(test_current_drift_averaged_over_window);
     return UNITY_END();
 }

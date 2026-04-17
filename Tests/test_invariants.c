@@ -142,9 +142,9 @@ void test_fault_reserved_bit15_must_be_zero_in_flags(void)
         FAULT_AMP_FAULTZ | FAULT_V24_RANGE | FAULT_V12_RANGE |
         FAULT_V5_RANGE | FAULT_V3V3_RANGE | FAULT_SEQ_ABORT | FAULT_INTERNAL;
 
-    TEST_ASSERT_EQUAL_HEX16(0x7FFFu, active_flags);
-    TEST_ASSERT_EQUAL_HEX16(0x0000u, active_flags & FAULT_RESERVED);
-    TEST_ASSERT_EQUAL_HEX16(0x8000u, FAULT_RESERVED);
+    TEST_ASSERT_EQUAL_HEX16(0x7FFFU, active_flags);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, active_flags & FAULT_RESERVED);
+    TEST_ASSERT_EQUAL_HEX16(0x8000U, FAULT_RESERVED);
 }
 
 /* ===== Bootloader constants (Rules 10) ===== */
@@ -189,6 +189,102 @@ void test_proto_max_data(void)
     TEST_ASSERT_EQUAL_UINT(64, PROTO_MAX_DATA);
 }
 
+/* ===== Voltage divider (Rules 2.3) ===== */
+
+void test_voltage_divider_constants(void)
+{
+    /* Vin = Vadc * 11616 / 1000 — drives adc_service voltage conversion. */
+    TEST_ASSERT_EQUAL_UINT(11616, VDIV_MULT);
+    TEST_ASSERT_EQUAL_UINT(1000,  VDIV_DIV);
+}
+
+/* ===== Current sensor (Rules 2.2) ===== */
+
+void test_current_sensor_constants(void)
+{
+    /* 264 mV/A sensitivity, default Voffset = 1650 mV @ 3.3V supply.
+       5 channels: LCD, BL, SCALER, AUDIO_L, AUDIO_R. */
+    TEST_ASSERT_EQUAL_UINT(264U,     CURRENT_SENSITIVITY_MV_PER_A);
+    TEST_ASSERT_EQUAL_UINT(264000U,  CURRENT_SENSITIVITY_UV_PER_A);
+    TEST_ASSERT_EQUAL_UINT(1650U,    CURRENT_VOFFSET_MV_DEFAULT);
+    TEST_ASSERT_EQUAL_UINT(5,        CURRENT_CHANNELS);
+}
+
+/* ===== Default voltage thresholds (README §8, Rules 7) ===== */
+
+void test_default_voltage_thresholds(void)
+{
+    TEST_ASSERT_EQUAL_UINT(20000U, THRESH_V24_MIN);
+    TEST_ASSERT_EQUAL_UINT(26000U, THRESH_V24_MAX);
+    TEST_ASSERT_EQUAL_UINT(10000U, THRESH_V12_MIN);
+    TEST_ASSERT_EQUAL_UINT(13000U, THRESH_V12_MAX);
+    TEST_ASSERT_EQUAL_UINT(4500U,  THRESH_V5_MIN);
+    TEST_ASSERT_EQUAL_UINT(5500U,  THRESH_V5_MAX);
+    TEST_ASSERT_EQUAL_UINT(3000U,  THRESH_V3V3_MIN);
+    TEST_ASSERT_EQUAL_UINT(3600U,  THRESH_V3V3_MAX);
+
+    /* Sanity: min < max for every rail. */
+    TEST_ASSERT_TRUE(THRESH_V24_MIN  < THRESH_V24_MAX);
+    TEST_ASSERT_TRUE(THRESH_V12_MIN  < THRESH_V12_MAX);
+    TEST_ASSERT_TRUE(THRESH_V5_MIN   < THRESH_V5_MAX);
+    TEST_ASSERT_TRUE(THRESH_V3V3_MIN < THRESH_V3V3_MAX);
+}
+
+/* ===== Default current thresholds (Rules 7) ===== */
+
+void test_default_current_thresholds(void)
+{
+    TEST_ASSERT_EQUAL_UINT(2000U, THRESH_I_LCD_MAX);
+    TEST_ASSERT_EQUAL_UINT(3000U, THRESH_I_BL_MAX);
+    TEST_ASSERT_EQUAL_UINT(1500U, THRESH_I_SCALER_MAX);
+    TEST_ASSERT_EQUAL_UINT(800U,  THRESH_I_AUDIO_LR_MAX);
+}
+
+/* ===== SUS_S3#/PWRBTN auto-start (Rules 8) ===== */
+
+void test_sus_s3_and_pwrbtn_timings(void)
+{
+    TEST_ASSERT_EQUAL_UINT(500U,  SUS_S3_THRESHOLD_MS);
+    TEST_ASSERT_EQUAL_UINT(5000U, SUS_S3_COOLDOWN_MS);
+    TEST_ASSERT_EQUAL_UINT(150U,  PWRBTN_PULSE_MS);
+
+    /* Cooldown must exceed the threshold, or auto-start could fire twice. */
+    TEST_ASSERT_TRUE(SUS_S3_COOLDOWN_MS > SUS_S3_THRESHOLD_MS);
+}
+
+/* ===== Audio amplifier, bridge reset, PGOOD timeout ===== */
+
+void test_audio_bridge_and_pgood_timings(void)
+{
+    /* Rules 9 — TPA3118 wake/shutdown delays */
+    TEST_ASSERT_EQUAL_UINT(10U, AUDIO_SDZ_DELAY_MS);
+    TEST_ASSERT_EQUAL_UINT(10U, AUDIO_MUTE_DELAY_MS);
+
+    /* Rules 13 — bridge reset pulse */
+    TEST_ASSERT_EQUAL_UINT(10U, BRIDGE_RST_PULSE_MS);
+
+    /* Rules 6.5 — PGOOD lost latches FAULT_PGOOD_LOST after this window */
+    TEST_ASSERT_EQUAL_UINT(5000U, PGOOD_TIMEOUT_MS);
+}
+
+/* ===== UART timeouts, debounce, flash version ===== */
+
+void test_uart_debounce_and_flash_version(void)
+{
+    /* Rules 4.5 — UART packet framing timeouts */
+    TEST_ASSERT_EQUAL_UINT(10U, UART_INTERBYTE_TIMEOUT_MS);
+    TEST_ASSERT_EQUAL_UINT(50U, UART_PACKET_TIMEOUT_MS);
+
+    /* Inter-byte timeout must be smaller than full-packet timeout. */
+    TEST_ASSERT_TRUE(UART_INTERBYTE_TIMEOUT_MS < UART_PACKET_TIMEOUT_MS);
+
+    /* Rules 16 — input debounce */
+    TEST_ASSERT_EQUAL_UINT(20U, DEBOUNCE_MS);
+
+    /* Rules 11 — flash calibration record version */
+    TEST_ASSERT_EQUAL_UINT(1U, FLASH_CAL_VERSION);
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -230,5 +326,15 @@ int main(void)
     /* Timings */
     RUN_TEST(test_sequencing_timing_values);
     RUN_TEST(test_proto_max_data);
+    /* Conversion math constants */
+    RUN_TEST(test_voltage_divider_constants);
+    RUN_TEST(test_current_sensor_constants);
+    /* Default thresholds */
+    RUN_TEST(test_default_voltage_thresholds);
+    RUN_TEST(test_default_current_thresholds);
+    /* Timings */
+    RUN_TEST(test_sus_s3_and_pwrbtn_timings);
+    RUN_TEST(test_audio_bridge_and_pgood_timings);
+    RUN_TEST(test_uart_debounce_and_flash_version);
     return UNITY_END();
 }
