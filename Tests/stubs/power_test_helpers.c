@@ -1,6 +1,13 @@
 #include "power_test_helpers.h"
+#include "config.h"
 #include "stm32f0xx_hal.h"
 #include <string.h>
+
+/* Forward decl: resolved at link time from power_manager.c (included by the
+ * test TU). The stub below mirrors fault_manager's apply_fault_policy just
+ * enough to unblock sequencing tests that want to observe the same post-fault
+ * power_state the real fault_manager would produce in firmware. */
+void power_force_off_domains(uint16_t domain_mask);
 
 /* ===== Storage for mocks consumed by power_manager.c ===== */
 uint16_t mock_raw_avg[14];
@@ -23,6 +30,30 @@ uint8_t input_get_sus_s3(void) { return mock_sus_s3; }
 void fault_set_flag(uint16_t flag)
 {
     fault_flags_set |= flag;
+
+    /* Mirror fault_manager::apply_fault_policy (Rules §7.3) so that sequencing
+     * tests observe power_state cleared by the same path production uses. */
+    const uint16_t kill_all_display =
+        FAULT_SCALER | FAULT_SEQ_ABORT | FAULT_PGOOD_LOST |
+        FAULT_V24_RANGE | FAULT_V12_RANGE | FAULT_V5_RANGE |
+        FAULT_V3V3_RANGE | FAULT_INTERNAL;
+
+    if (flag & kill_all_display) {
+        power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+    }
+    if (flag & FAULT_LCD) {
+        power_force_off_domains(DOM_LCD | DOM_BACKLIGHT);
+    }
+    if (flag & FAULT_BACKLIGHT) {
+        power_force_off_domains(DOM_BACKLIGHT);
+    }
+    if (flag & (FAULT_AUDIO | FAULT_AMP_FAULTZ)) {
+        power_force_off_domains(DOM_AUDIO);
+    }
+    if (flag & (FAULT_PGOOD_LOST | FAULT_V24_RANGE | FAULT_V12_RANGE |
+                FAULT_V5_RANGE | FAULT_V3V3_RANGE | FAULT_INTERNAL)) {
+        power_force_off_domains(DOM_AUDIO | DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
+    }
 }
 
 /* ===== Test utilities ===== */
@@ -52,6 +83,17 @@ uint32_t pth_gpio_write_count(GPIO_TypeDef *port, uint16_t pin)
     uint32_t n = 0;
     for (uint32_t i = 0; i < hal_gpio_log_count; i++) {
         if (hal_gpio_log[i].port == port && hal_gpio_log[i].pin == pin) n++;
+    }
+    return n;
+}
+
+uint32_t pth_gpio_high_count(GPIO_TypeDef *port, uint16_t pin)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < hal_gpio_log_count; i++) {
+        if (hal_gpio_log[i].port == port &&
+            hal_gpio_log[i].pin  == pin  &&
+            hal_gpio_log[i].state == GPIO_PIN_SET) n++;
     }
     return n;
 }

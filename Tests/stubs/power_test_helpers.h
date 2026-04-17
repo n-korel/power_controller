@@ -34,6 +34,11 @@ int pth_last_gpio_write(GPIO_TypeDef *port, uint16_t pin, GPIO_PinState *out);
 /* Count of HAL_GPIO_WritePin calls for (port,pin) since pth_reset */
 uint32_t pth_gpio_write_count(GPIO_TypeDef *port, uint16_t pin);
 
+/* Count of HAL_GPIO_WritePin calls that drove (port,pin) HIGH since pth_reset.
+ * Useful to assert "pin was never activated" without caring about safe-state
+ * LOW writes emitted by power_force_off_domains(). */
+uint32_t pth_gpio_high_count(GPIO_TypeDef *port, uint16_t pin);
+
 /* Index of first/last write for (port,pin) in hal_gpio_log[], or -1. */
 int pth_first_write_idx(GPIO_TypeDef *port, uint16_t pin);
 int pth_last_write_idx(GPIO_TypeDef *port, uint16_t pin);

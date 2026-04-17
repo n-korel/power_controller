@@ -81,7 +81,13 @@ void fault_manager_init(void)
     pgood_consec  = 0;
 }
 
-/* ===== Process (called every main loop iteration) ===== */
+/* ===== Process (called every main loop iteration) =====
+ * NOTE: pstate is re-read before every independent block because
+ * apply_fault_policy -> power_force_off_domains mutates power_state mid-run.
+ * A stale snapshot could latch spurious downstream faults (e.g. FAULT_LCD
+ * after FAULT_V24_RANGE already de-powered the LCD sensors). Rules §7.1
+ * forbids auto-reset of latched faults, so a single ghost flag is permanent.
+ */
 void fault_manager_process(void)
 {
     uint8_t pstate = power_get_state();
@@ -107,6 +113,7 @@ void fault_manager_process(void)
 
     /* --- Current checks (signed comparison: negative = sensor below offset, not a fault) --- */
     /* LCD current — check only if LCD domain on */
+    pstate = power_get_state();
     if (pstate & DOM_LCD) {
         if (adc_get_current_ma(0) > (int16_t)i_thresh_max[0]) {
             i_consec[0]++;
@@ -120,6 +127,7 @@ void fault_manager_process(void)
     }
 
     /* Backlight current */
+    pstate = power_get_state();
     if (pstate & DOM_BACKLIGHT) {
         if (adc_get_current_ma(1) > (int16_t)i_thresh_max[1]) {
             i_consec[1]++;
@@ -133,6 +141,7 @@ void fault_manager_process(void)
     }
 
     /* Scaler current */
+    pstate = power_get_state();
     if (pstate & DOM_SCALER) {
         if (adc_get_current_ma(2) > (int16_t)i_thresh_max[2]) {
             i_consec[2]++;
@@ -146,6 +155,7 @@ void fault_manager_process(void)
     }
 
     /* Audio L/R current */
+    pstate = power_get_state();
     if (pstate & DOM_AUDIO) {
         for (uint8_t ch = 3; ch < 5; ch++) {
             if (adc_get_current_ma(ch) > (int16_t)i_thresh_max[ch]) {
@@ -161,6 +171,7 @@ void fault_manager_process(void)
     }
 
     /* --- Faultz input (active LOW from TPA3118, only when AUDIO on) --- */
+    pstate = power_get_state();
     if (pstate & DOM_AUDIO) {
         if (!input_get_faultz()) {
             faultz_consec++;
@@ -176,6 +187,7 @@ void fault_manager_process(void)
     }
 
     /* --- PGOOD loss --- */
+    pstate = power_get_state();
     if (!input_get_pgood() && pstate) {
         pgood_consec++;
         if (pgood_consec >= FAULT_CONFIRM_COUNT) {

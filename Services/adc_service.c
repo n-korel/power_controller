@@ -59,13 +59,13 @@ void adc_service_process(void)
         avg_raw[ch] = (uint16_t)(sum / window_fill);
     }
 
-    /* Convert voltages: adc_mv = raw * 2500 / 4096, then vin = adc_mv * 11616 / 1000 */
+    /* Convert voltages via shared ADC_RAIL_MV_FROM_RAW (config.h):
+     * adc_mv = raw * 2500 / 4096, then vin = adc_mv * 11616 / 1000 */
     static const uint8_t v_idx[4] = {
         ADC_IDX_V24, ADC_IDX_V12, ADC_IDX_V5, ADC_IDX_V3V3
     };
     for (uint8_t i = 0; i < 4; i++) {
-        uint32_t adc_mv = (uint32_t)avg_raw[v_idx[i]] * ADC_VREF_MV / ADC_RESOLUTION;
-        voltage_mv[i] = (uint16_t)(adc_mv * VDIV_MULT / VDIV_DIV);
+        voltage_mv[i] = (uint16_t)ADC_RAIL_MV_FROM_RAW(avg_raw[v_idx[i]]);
     }
 
     /* Convert currents: i_ma = (adc_mv - offset_mv) * 1000 / 264 */

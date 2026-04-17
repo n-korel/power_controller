@@ -185,10 +185,12 @@ static void dseq_process(void)
 {
     uint32_t now = systick_ms;
 
-    /* PGOOD check during any active UP sequence (Rules 6.2) */
+    /* PGOOD check during any active UP sequence (Rules 6.2).
+     * Shutdown of the display rails is driven through the fault policy:
+     * fault_set_flag(FAULT_PGOOD_LOST) -> power_force_off_domains(ALL)
+     * already calls power_emergency_display_off() internally. */
     if (dseq != DSEQ_IDLE && dseq < DSEQ_DN_PWM_ZERO) {
         if (!input_get_pgood()) {
-            power_emergency_display_off();
             fault_set_flag(FAULT_PGOOD_LOST);
             fault_set_flag(FAULT_SEQ_ABORT);
             return;
@@ -215,12 +217,10 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_SCALER: {
-        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_SCALER_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_SCALER_POWER));
         if (vin_mv >= SEQ_VERIFY_SCALER_MV) {
             dseq = DSEQ_UP_RST_RELEASE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            power_emergency_display_off();
             fault_set_flag(FAULT_SEQ_ABORT);
         }
         break;
@@ -252,15 +252,13 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_LCD: {
-        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_LCD_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_LCD_POWER));
         if (vin_mv >= SEQ_VERIFY_LCD_MV) {
             if (dseq_up_with_bl)
                 dseq = DSEQ_UP_BL_ON;
             else
                 dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            power_emergency_display_off();
             fault_set_flag(FAULT_SEQ_ABORT);
         }
         break;
@@ -279,12 +277,10 @@ static void dseq_process(void)
         /* BACKLIGHT_POWER_M uses the same divider as SCALER/LCD (R169..R182, 4.99k/470).
          * ~12V at the rail -> ~1033mV at ADC input, restored via VDIV_MULT/VDIV_DIV.
          * SEQ_VERIFY_BL_MV=9000 is compared against the restored rail voltage. */
-        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_BL_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_BL_POWER));
         if (vin_mv >= SEQ_VERIFY_BL_MV) {
             dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            power_emergency_display_off();
             fault_set_flag(FAULT_SEQ_ABORT);
         }
         break;
@@ -526,8 +522,12 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
     /* Compute desired future state for validation */
     uint8_t future = (power_state & ~(uint8_t)mask) | (uint8_t)(value & mask);
 
-    /* BACKLIGHT ON requires both SCALER and LCD ON (Rules 4.5) */
-    if ((future & DOM_BACKLIGHT) && (!(future & DOM_SCALER) || !(future & DOM_LCD)))
+    /* Rules §23: BACKLIGHT may be turned ON only if SCALER+LCD will also be ON.
+     * Rules §24: SCALER=OFF / LCD=OFF while BL=ON must *not* be rejected here;
+     * it triggers a proper shutdown sequence below (DSEQ_DN_*). So the guard
+     * only applies when BL is being explicitly driven to ON. */
+    if ((mask & DOM_BACKLIGHT) && (value & DOM_BACKLIGHT) &&
+        (!(future & DOM_SCALER) || !(future & DOM_LCD)))
         return 1;
 
     /* LCD ON without SCALER is forbidden (Rules 13.7) */

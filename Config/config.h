@@ -29,6 +29,12 @@ typedef enum {
 #define VDIV_MULT            11616U
 #define VDIV_DIV             1000U
 
+/* Convert a raw ADC sample into rail voltage (mV at the divider input).
+ * Single source of truth used by adc_service and power_manager sequencing.
+ * Max intermediate value ~29M, fits uint32_t. */
+#define ADC_RAIL_MV_FROM_RAW(raw) \
+    ((uint32_t)(raw) * ADC_VREF_MV / ADC_RESOLUTION * VDIV_MULT / VDIV_DIV)
+
 /* Current sensor: 264 mV/A, default Voffset = 1650 mV (Rules 2.2) */
 #define CURRENT_SENSITIVITY_UV_PER_A  264000U
 #define CURRENT_SENSITIVITY_MV_PER_A  264U

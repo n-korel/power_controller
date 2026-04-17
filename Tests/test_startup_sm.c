@@ -162,11 +162,12 @@ void test_pgood_absent_5s_latches_fault_and_stays_safe(void)
     /* Domains must remain fully OFF (safe state) */
     TEST_ASSERT_EQUAL_UINT8(0, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    /* No domain GPIO was ever driven HIGH */
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(LCD_POWER_ON_GPIO_Port,    LCD_POWER_ON_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_TOUCH_GPIO_Port,     POWER_TOUCH_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_AUDIO_GPIO_Port,     POWER_AUDIO_Pin));
+    /* No domain GPIO was ever driven HIGH (fault policy may write LOW to
+     * enforce safe state, which is fine). */
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(LCD_POWER_ON_GPIO_Port,    LCD_POWER_ON_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port,     POWER_TOUCH_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_AUDIO_GPIO_Port,     POWER_AUDIO_Pin));
 }
 
 void test_pgood_recovery_after_timeout_does_not_auto_startup(void)
@@ -186,7 +187,7 @@ void test_pgood_recovery_after_timeout_does_not_auto_startup(void)
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_EQUAL_UINT8(0, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
 }
 
 /* ===== Timer math uses unsigned wraparound (§12 systick_ms invariant) ===== */
