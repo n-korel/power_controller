@@ -1,20 +1,19 @@
 /*
  * Unit tests: CRC-8/ATM and CRC-32
  *
- * CRC-8/ATM: poly=0x07, init=0x00, refin/refout=false, xorout=0x00
+ * CRC-8/ATM (implementation: poly=0x07, init=0x00, refin/out=false, xorout=0x00)
  *   Used in UART protocol (Rules 4.2).
+ *   Standard check value for "123456789" = 0xF4 (CRC-8/SMBus).
  *
- * CRC-32: standard Ethernet/ZIP (poly=0xEDB88320 reflected)
+ * CRC-32: standard Ethernet/ZIP (poly reflected 0xEDB88320,
+ *   init=0xFFFFFFFF, xorout=0xFFFFFFFF, refin/out=true).
  *   Used in flash calibration data (Rules 11).
- *
- * Both functions are static in their source files, so we include the
- * source directly to get access.
  */
 #include "unity.h"
 #include "config.h"
-
-/* Pull static crc8_calc + table from uart_protocol.c */
-/* We need mocks for all external functions it calls */
+#include "flash_cal.h"
+#include <string.h>
+#include <stddef.h>
 
 /* --- Mocks for uart_protocol.c dependencies --- */
 static uint16_t mock_voltage_mv[4];
@@ -42,7 +41,7 @@ volatile uint32_t systick_ms;
 
 #include "uart_protocol.c"
 
-/* Pull static sw_crc32 from flash_cal.c (only the function, not the whole file) */
+/* Reference CRC-32 (same algorithm as flash_cal.c sw_crc32) */
 static uint32_t sw_crc32(const uint8_t *data, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFF;
@@ -65,74 +64,109 @@ void tearDown(void) {}
 
 void test_crc8_known_vector_123456789(void)
 {
-    /* Standard CRC-8/ATM check value for ASCII "123456789" is 0xBC */
-    TEST_IGNORE_MESSAGE("TODO: verify crc8_calc(\"123456789\", 9) == 0xBC (check value per spec)");
+    const uint8_t v[] = "123456789";
+    TEST_ASSERT_EQUAL_HEX8(0xF4, crc8_calc(v, 9));
 }
 
 void test_crc8_empty_input(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: crc8_calc(data, 0) should return init value 0x00");
+    const uint8_t v[] = { 0x00 };
+    TEST_ASSERT_EQUAL_HEX8(0x00, crc8_calc(v, 0));
 }
 
 void test_crc8_single_byte(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: single byte CRC matches table lookup");
+    for (uint16_t b = 0; b < 256; b++) {
+        uint8_t byte = (uint8_t)b;
+        uint8_t got = crc8_calc(&byte, 1);
+        TEST_ASSERT_EQUAL_HEX8(crc8_table[byte], got);
+    }
 }
 
 void test_crc8_ping_packet(void)
 {
-    /* Real PING packet: CMD=0x01, LEN=0x00 → CRC over [0x01, 0x00] */
-    TEST_IGNORE_MESSAGE("TODO: CRC of [CMD_PING, 0x00] matches expected value");
+    const uint8_t buf[] = { CMD_PING, 0x00 };
+    uint8_t expected = crc8_table[crc8_table[0 ^ CMD_PING] ^ 0x00];
+    TEST_ASSERT_EQUAL_HEX8(expected, crc8_calc(buf, 2));
 }
 
 void test_crc8_get_status_response(void)
 {
-    /* Verify CRC for a known GET_STATUS response (26 bytes of data) */
-    TEST_IGNORE_MESSAGE("TODO: CRC of [CMD_GET_STATUS, 26, <known data>] is correct");
+    uint8_t buf[2 + GET_STATUS_DATA_LEN];
+    buf[0] = CMD_GET_STATUS;
+    buf[1] = GET_STATUS_DATA_LEN;
+    for (uint8_t i = 0; i < GET_STATUS_DATA_LEN; i++)
+        buf[2 + i] = i;
+
+    uint8_t ref = 0;
+    for (uint8_t i = 0; i < sizeof(buf); i++)
+        ref = crc8_table[ref ^ buf[i]];
+
+    TEST_ASSERT_EQUAL_HEX8(ref, crc8_calc(buf, sizeof(buf)));
 }
 
 void test_crc8_max_length_data(void)
 {
-    /* CRC over PROTO_MAX_DATA (64) bytes + CMD + LEN */
-    TEST_IGNORE_MESSAGE("TODO: CRC of maximum-length packet is correct");
+    uint8_t buf[2 + PROTO_MAX_DATA];
+    buf[0] = CMD_SET_THRESHOLDS;
+    buf[1] = PROTO_MAX_DATA;
+    for (uint8_t i = 0; i < PROTO_MAX_DATA; i++)
+        buf[2 + i] = (uint8_t)(0xA5 ^ i);
+
+    uint8_t ref = 0;
+    for (uint16_t i = 0; i < sizeof(buf); i++)
+        ref = crc8_table[ref ^ buf[i]];
+
+    TEST_ASSERT_EQUAL_HEX8(ref, crc8_calc(buf, (uint8_t)sizeof(buf)));
 }
 
 /* ===== CRC-32 tests ===== */
 
 void test_crc32_known_vector_123456789(void)
 {
-    /* Standard CRC-32 check value for "123456789" is 0xCBF43926 */
-    TEST_IGNORE_MESSAGE("TODO: sw_crc32(\"123456789\", 9) == 0xCBF43926");
+    const uint8_t v[] = "123456789";
+    TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, sw_crc32(v, 9));
 }
 
 void test_crc32_empty_input(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: sw_crc32(data, 0) == 0x00000000 (empty = all bits flipped)");
+    const uint8_t v[] = { 0x00 };
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, sw_crc32(v, 0));
 }
 
 void test_crc32_single_zero_byte(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: sw_crc32({0x00}, 1) matches reference implementation");
+    /* CRC-32 of single 0x00 byte = 0xD202EF8D (standard value) */
+    const uint8_t v[] = { 0x00 };
+    TEST_ASSERT_EQUAL_HEX32(0xD202EF8Du, sw_crc32(v, 1));
 }
 
 void test_crc32_flash_cal_structure(void)
 {
-    /* Build a valid flash_cal_t, compute CRC, verify it validates correctly */
-    TEST_IGNORE_MESSAGE("TODO: construct flash_cal_t, compute sw_crc32 over payload, verify round-trip");
+    flash_cal_t cal;
+    memset(&cal, 0, sizeof(cal));
+    cal.magic   = FLASH_CAL_MAGIC;
+    cal.version = FLASH_CAL_VERSION;
+    for (uint8_t i = 0; i < 5; i++)
+        cal.offset_raw[i] = (uint16_t)(2000 + i * 10);
+
+    uint32_t payload_len = offsetof(flash_cal_t, crc32);
+    cal.crc32 = sw_crc32((const uint8_t *)&cal, payload_len);
+
+    uint32_t recomputed = sw_crc32((const uint8_t *)&cal, payload_len);
+    TEST_ASSERT_EQUAL_HEX32(cal.crc32, recomputed);
 }
 
 /* ===== Runner ===== */
 int main(void)
 {
     UNITY_BEGIN();
-    /* CRC-8 */
     RUN_TEST(test_crc8_known_vector_123456789);
     RUN_TEST(test_crc8_empty_input);
     RUN_TEST(test_crc8_single_byte);
     RUN_TEST(test_crc8_ping_packet);
     RUN_TEST(test_crc8_get_status_response);
     RUN_TEST(test_crc8_max_length_data);
-    /* CRC-32 */
     RUN_TEST(test_crc32_known_vector_123456789);
     RUN_TEST(test_crc32_empty_input);
     RUN_TEST(test_crc32_single_zero_byte);

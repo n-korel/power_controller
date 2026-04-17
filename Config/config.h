@@ -140,7 +140,6 @@ typedef enum {
 #define CURRENT_CHANNELS     5
 
 /* ===== Bootloader (Rules 10) ===== */
-#define SRAM_MAGIC_ADDR      0x20000000u
 #define SRAM_MAGIC_VALUE     0xDEADBEEFu
 #define ROM_BOOTLOADER_ADDR  0x1FFF0000u
 

@@ -134,8 +134,17 @@ void test_fault_bits(void)
 
 void test_fault_reserved_bit15_must_be_zero_in_flags(void)
 {
-    /* FAULT_RESERVED (bit15) should never be set in normal operation */
-    TEST_IGNORE_MESSAGE("TODO: after any fault scenario, verify bit15 of fault_get_flags() is 0");
+    /* All active fault flags OR'd must fit into bits 0..14 (0x7FFF),
+       so no valid fault scenario can ever set bit15 in fault_get_flags(). */
+    const uint16_t active_flags =
+        FAULT_SCALER | FAULT_LCD | FAULT_BACKLIGHT | FAULT_AUDIO |
+        FAULT_ETH1 | FAULT_ETH2 | FAULT_TOUCH | FAULT_PGOOD_LOST |
+        FAULT_AMP_FAULTZ | FAULT_V24_RANGE | FAULT_V12_RANGE |
+        FAULT_V5_RANGE | FAULT_V3V3_RANGE | FAULT_SEQ_ABORT | FAULT_INTERNAL;
+
+    TEST_ASSERT_EQUAL_HEX16(0x7FFFu, active_flags);
+    TEST_ASSERT_EQUAL_HEX16(0x0000u, active_flags & FAULT_RESERVED);
+    TEST_ASSERT_EQUAL_HEX16(0x8000u, FAULT_RESERVED);
 }
 
 /* ===== Bootloader constants (Rules 10) ===== */

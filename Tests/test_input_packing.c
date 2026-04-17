@@ -7,8 +7,6 @@
  *   bit7    = Faultz
  *
  * Debounce: 20ms (DEBOUNCE_MS) — new state accepted only after stable for ≥20ms.
- *
- * Source included directly for access to static state (filtered[], raw_prev[]).
  */
 #include "unity.h"
 #include "config.h"
@@ -17,11 +15,18 @@ volatile uint32_t systick_ms;
 
 #include "input_service.c"
 
-/* Helper: set all mock GPIO pins to a given state */
 static void set_all_pins(GPIO_PinState val)
 {
     for (uint8_t i = 0; i < INPUT_COUNT; i++)
         hal_stub_set_pin(pins[i].port, pins[i].pin, val);
+}
+
+/* Drive all debounced inputs to match current raw GPIO state */
+static void settle_debounce(void)
+{
+    input_service_process();
+    systick_ms += DEBOUNCE_MS + 1;
+    input_service_process();
 }
 
 void setUp(void)
@@ -38,108 +43,155 @@ void tearDown(void) {}
 
 void test_packed_all_zeros(void)
 {
-    /* All inputs LOW → packed = 0x00 */
-    TEST_IGNORE_MESSAGE("TODO: all filtered[]=0, assert input_get_packed()==0x00");
+    TEST_ASSERT_EQUAL_HEX8(0x00, input_get_packed());
 }
 
 void test_packed_all_ones(void)
 {
-    /* All inputs HIGH → packed = 0xFF (bits 0-7 all set) */
-    TEST_IGNORE_MESSAGE("TODO: set all pins HIGH, debounce, assert input_get_packed()==0xFF");
+    set_all_pins(GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0xFF, input_get_packed());
 }
 
 void test_packed_pgood_is_bit6(void)
 {
-    /* Only PGOOD=1 → packed = 0x40 */
-    TEST_IGNORE_MESSAGE("TODO: set only PGOOD HIGH, debounce, assert input_get_packed()==0x40");
+    hal_stub_set_pin(PGOOD_GPIO_Port, PGOOD_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0x40, input_get_packed());
 }
 
 void test_packed_faultz_is_bit7(void)
 {
-    /* Only FAULTZ=1 → packed = 0x80 */
-    TEST_IGNORE_MESSAGE("TODO: set only FAULTZ HIGH, debounce, assert input_get_packed()==0x80");
+    hal_stub_set_pin(FAULTZ_GPIO_Port, FAULTZ_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0x80, input_get_packed());
 }
 
 void test_packed_in0_is_bit0(void)
 {
-    /* Only IN_0=1 → packed = 0x01 */
-    TEST_IGNORE_MESSAGE("TODO: set only IN_0 HIGH, debounce, assert input_get_packed()==0x01");
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0x01, input_get_packed());
 }
 
 void test_packed_in5_is_bit5(void)
 {
-    /* Only IN_5=1 → packed = 0x20 */
-    TEST_IGNORE_MESSAGE("TODO: set only IN_5 HIGH, debounce, assert input_get_packed()==0x20");
+    hal_stub_set_pin(IN_5_GPIO_Port, IN_5_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0x20, input_get_packed());
 }
 
 void test_packed_mixed_pattern(void)
 {
-    /* PGOOD=1, IN_0=1, IN_3=1 → packed = 0x49 */
-    TEST_IGNORE_MESSAGE("TODO: set PGOOD+IN_0+IN_3 HIGH, debounce, assert 0x49");
+    hal_stub_set_pin(PGOOD_GPIO_Port, PGOOD_Pin, GPIO_PIN_SET);
+    hal_stub_set_pin(IN_0_GPIO_Port,  IN_0_Pin,  GPIO_PIN_SET);
+    hal_stub_set_pin(IN_3_GPIO_Port,  IN_3_Pin,  GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_HEX8(0x49, input_get_packed());
 }
 
 /* ===== Individual getters ===== */
 
 void test_get_pgood_returns_filtered(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: set PGOOD pin HIGH, debounce, assert input_get_pgood()==1");
+    hal_stub_set_pin(PGOOD_GPIO_Port, PGOOD_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_pgood());
 }
 
 void test_get_sus_s3_returns_filtered(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: set SUS_S3 pin HIGH, debounce, assert input_get_sus_s3()==1");
+    hal_stub_set_pin(SUS_S3_GPIO_Port, SUS_S3_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_sus_s3());
 }
 
 void test_get_faultz_returns_filtered(void)
 {
-    TEST_IGNORE_MESSAGE("TODO: set FAULTZ pin HIGH, debounce, assert input_get_faultz()==1");
+    hal_stub_set_pin(FAULTZ_GPIO_Port, FAULTZ_Pin, GPIO_PIN_SET);
+    settle_debounce();
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_faultz());
 }
 
 void test_get_in_bounds_check(void)
 {
-    /* input_get_in(6) → 0 (out of range) */
-    TEST_IGNORE_MESSAGE("TODO: assert input_get_in(6)==0 and input_get_in(255)==0");
+    TEST_ASSERT_EQUAL_UINT8(0, input_get_in(6));
+    TEST_ASSERT_EQUAL_UINT8(0, input_get_in(255));
 }
 
 /* ===== Debounce (Rules 16, DEBOUNCE_MS=20) ===== */
 
 void test_debounce_immediate_change_not_accepted(void)
 {
-    /* Pin changes, but < 20ms passes → filtered stays old value */
-    TEST_IGNORE_MESSAGE("TODO: set pin HIGH, advance <20ms, process, assert filtered still LOW");
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_SET);
+    input_service_process();
+
+    systick_ms += DEBOUNCE_MS - 5;
+    input_service_process();
+
+    TEST_ASSERT_EQUAL_UINT8(0, input_get_in(0));
 }
 
 void test_debounce_accepted_after_20ms(void)
 {
-    /* Pin changes and stays stable for ≥ 20ms → filtered updates */
-    TEST_IGNORE_MESSAGE("TODO: set pin HIGH, advance 20ms, process, assert filtered == HIGH");
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_SET);
+    input_service_process();
+
+    systick_ms += DEBOUNCE_MS;
+    input_service_process();
+
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_in(0));
 }
 
 void test_debounce_bounce_resets_timer(void)
 {
-    /* Pin toggles within 20ms → timer restarts, no change accepted */
-    TEST_IGNORE_MESSAGE("TODO: set HIGH, advance 15ms, set LOW, advance 15ms, assert filtered unchanged");
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_SET);
+    input_service_process();
+
+    systick_ms += 15;
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_RESET);
+    input_service_process();
+
+    systick_ms += 15;
+    input_service_process();
+
+    TEST_ASSERT_EQUAL_UINT8(0, input_get_in(0));
 }
 
 void test_debounce_multiple_channels_independent(void)
 {
-    /* Channel 0 debounces independently from channel 5 */
-    TEST_IGNORE_MESSAGE("TODO: change ch0 and ch5 at different times, verify independent debounce");
+    hal_stub_set_pin(IN_0_GPIO_Port, IN_0_Pin, GPIO_PIN_SET);
+    input_service_process();
+
+    systick_ms += 5;
+    hal_stub_set_pin(IN_5_GPIO_Port, IN_5_Pin, GPIO_PIN_SET);
+    input_service_process();
+
+    systick_ms += DEBOUNCE_MS - 5;
+    input_service_process();
+
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_in(0));
+    TEST_ASSERT_EQUAL_UINT8(0, input_get_in(5));
+
+    systick_ms += 10;
+    input_service_process();
+    TEST_ASSERT_EQUAL_UINT8(1, input_get_in(5));
 }
 
 /* ===== Init ===== */
 
 void test_init_reads_current_pin_state(void)
 {
-    /* After init, filtered[] reflects current GPIO state (no debounce delay) */
-    TEST_IGNORE_MESSAGE("TODO: set pins before init, call init, assert filtered matches GPIO state");
+    set_all_pins(GPIO_PIN_SET);
+    input_service_init();
+
+    TEST_ASSERT_EQUAL_HEX8(0xFF, input_get_packed());
 }
 
 /* ===== Runner ===== */
 int main(void)
 {
     UNITY_BEGIN();
-    /* Packing */
     RUN_TEST(test_packed_all_zeros);
     RUN_TEST(test_packed_all_ones);
     RUN_TEST(test_packed_pgood_is_bit6);
@@ -147,17 +199,14 @@ int main(void)
     RUN_TEST(test_packed_in0_is_bit0);
     RUN_TEST(test_packed_in5_is_bit5);
     RUN_TEST(test_packed_mixed_pattern);
-    /* Getters */
     RUN_TEST(test_get_pgood_returns_filtered);
     RUN_TEST(test_get_sus_s3_returns_filtered);
     RUN_TEST(test_get_faultz_returns_filtered);
     RUN_TEST(test_get_in_bounds_check);
-    /* Debounce */
     RUN_TEST(test_debounce_immediate_change_not_accepted);
     RUN_TEST(test_debounce_accepted_after_20ms);
     RUN_TEST(test_debounce_bounce_resets_timer);
     RUN_TEST(test_debounce_multiple_channels_independent);
-    /* Init */
     RUN_TEST(test_init_reads_current_pin_state);
     return UNITY_END();
 }

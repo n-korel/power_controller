@@ -3,27 +3,26 @@
 #include "uart_protocol.h"
 #include "stm32f0xx_hal.h"
 
+/* Placed in .noinit — Reset_Handler does not clear/init this region,
+   so the value survives NVIC_SystemReset(). */
+static volatile uint32_t boot_magic __attribute__((section(".noinit")));
+
 static volatile uint8_t boot_pending;
 
 /* ===== Check SRAM magic (called BEFORE HAL_Init) ===== */
 void bootloader_check(void)
 {
-    volatile uint32_t *magic = (volatile uint32_t *)SRAM_MAGIC_ADDR;
-    if (*magic == SRAM_MAGIC_VALUE) {
-        *magic = 0;
+    if (boot_magic == SRAM_MAGIC_VALUE) {
+        boot_magic = 0;
 
-        /* Jump to ROM bootloader */
-        uint32_t boot_addr = ROM_BOOTLOADER_ADDR;
-        uint32_t *vec = (uint32_t *)boot_addr;
+        uint32_t *vec = (uint32_t *)ROM_BOOTLOADER_ADDR;
         uint32_t sp   = vec[0];
         uint32_t pc   = vec[1];
 
-        /* Set MSP and jump */
         __set_MSP(sp);
         void (*jump)(void) = (void (*)(void))pc;
         jump();
 
-        /* Should never reach here */
         while (1) {}
     }
 }
@@ -38,12 +37,9 @@ void bootloader_schedule(void)
 void bootloader_process(void)
 {
     if (!boot_pending) return;
-
-    /* Wait for ACK transmission to complete */
     if (uart_tx_busy()) return;
 
-    /* Write SRAM magic and reset */
-    volatile uint32_t *magic = (volatile uint32_t *)SRAM_MAGIC_ADDR;
-    *magic = SRAM_MAGIC_VALUE;
+    boot_magic = SRAM_MAGIC_VALUE;
+    __DSB();
     NVIC_SystemReset();
 }

@@ -185,8 +185,9 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_SCALER: {
-        uint16_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_SCALER_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        if (adc_mv >= SEQ_VERIFY_SCALER_MV) {
+        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_SCALER_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
+        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        if (vin_mv >= SEQ_VERIFY_SCALER_MV) {
             dseq = DSEQ_UP_RST_RELEASE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
             power_emergency_display_off();
@@ -221,8 +222,9 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_LCD: {
-        uint16_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_LCD_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        if (adc_mv >= SEQ_VERIFY_LCD_MV) {
+        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_LCD_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
+        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        if (vin_mv >= SEQ_VERIFY_LCD_MV) {
             if (dseq_up_with_bl)
                 dseq = DSEQ_UP_BL_ON;
             else
@@ -244,8 +246,9 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_BL: {
-        uint16_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_BL_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
-        if (adc_mv >= SEQ_VERIFY_BL_MV) {
+        uint32_t adc_mv = (uint32_t)adc_get_raw_avg(ADC_IDX_BL_POWER) * ADC_VREF_MV / ADC_RESOLUTION;
+        uint32_t vin_mv = adc_mv * VDIV_MULT / VDIV_DIV;
+        if (vin_mv >= SEQ_VERIFY_BL_MV) {
             dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
             power_emergency_display_off();

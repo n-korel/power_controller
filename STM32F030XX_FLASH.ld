@@ -148,6 +148,18 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  /* Non-initialized retained RAM: kept across soft reset (e.g. bootloader magic).
+     Placed before .data/.bss so startup's Reset_Handler does not touch it. */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _snoinit = .;
+    KEEP(*(.noinit))
+    KEEP(*(.noinit*))
+    . = ALIGN(4);
+    _enoinit = .;
+  } >RAM
+
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 

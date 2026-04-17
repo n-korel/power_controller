@@ -55,7 +55,7 @@ static uint8_t  p_crc_rx;
 static uint32_t p_last_byte_ts;
 static volatile uint8_t p_ready;
 
-static uint8_t  rx_byte;
+static volatile uint8_t rx_byte;
 
 /* TX buffer: STX + CMD + LEN + DATA(max64) + CRC + ETX = 69 max */
 static uint8_t  tx_buf[PROTO_MAX_DATA + 5];
@@ -67,7 +67,7 @@ void uart_protocol_init(void)
     p_state = PS_WAIT_STX;
     p_ready = 0;
     tx_busy_flag = 0;
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
 /* ===== RX byte callback (from ISR) ===== */
@@ -134,7 +134,7 @@ void uart_protocol_rx_byte_cb(void)
         break;
     }
 
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
 /* ===== TX ===== */

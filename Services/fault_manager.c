@@ -103,10 +103,10 @@ void fault_manager_process(void)
         }
     }
 
-    /* --- Current checks --- */
+    /* --- Current checks (signed comparison: negative = sensor below offset, not a fault) --- */
     /* LCD current — check only if LCD domain on */
     if (pstate & DOM_LCD) {
-        if ((uint16_t)adc_get_current_ma(0) > i_thresh_max[0]) {
+        if (adc_get_current_ma(0) > (int16_t)i_thresh_max[0]) {
             i_consec[0]++;
             if (i_consec[0] >= FAULT_CONFIRM_COUNT)
                 apply_fault_policy(FAULT_LCD);
@@ -117,7 +117,7 @@ void fault_manager_process(void)
 
     /* Backlight current */
     if (pstate & DOM_BACKLIGHT) {
-        if ((uint16_t)adc_get_current_ma(1) > i_thresh_max[1]) {
+        if (adc_get_current_ma(1) > (int16_t)i_thresh_max[1]) {
             i_consec[1]++;
             if (i_consec[1] >= FAULT_CONFIRM_COUNT)
                 apply_fault_policy(FAULT_BACKLIGHT);
@@ -128,7 +128,7 @@ void fault_manager_process(void)
 
     /* Scaler current */
     if (pstate & DOM_SCALER) {
-        if ((uint16_t)adc_get_current_ma(2) > i_thresh_max[2]) {
+        if (adc_get_current_ma(2) > (int16_t)i_thresh_max[2]) {
             i_consec[2]++;
             if (i_consec[2] >= FAULT_CONFIRM_COUNT)
                 apply_fault_policy(FAULT_SCALER);
@@ -140,7 +140,7 @@ void fault_manager_process(void)
     /* Audio L/R current */
     if (pstate & DOM_AUDIO) {
         for (uint8_t ch = 3; ch < 5; ch++) {
-            if ((uint16_t)adc_get_current_ma(ch) > i_thresh_max[ch]) {
+            if (adc_get_current_ma(ch) > (int16_t)i_thresh_max[ch]) {
                 i_consec[ch]++;
                 if (i_consec[ch] >= FAULT_CONFIRM_COUNT)
                     apply_fault_policy(FAULT_AUDIO);
