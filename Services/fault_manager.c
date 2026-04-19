@@ -20,6 +20,18 @@ static uint8_t i_consec[5];
 static uint8_t faultz_consec;
 static uint8_t pgood_consec;
 
+static uint8_t current_exceeds_threshold(uint8_t ch)
+{
+    int16_t current_ma = adc_get_current_ma(ch);
+    int32_t threshold_ma = (int32_t)i_thresh_max[ch];
+
+    if (current_ma <= 0) {
+        return 0;
+    }
+
+    return ((int32_t)current_ma > threshold_ma) ? 1U : 0U;
+}
+
 /* ===== Fault -> shutdown policy (Rules 7.3) ===== */
 static void apply_fault_policy(uint16_t flag)
 {
@@ -115,7 +127,7 @@ void fault_manager_process(void)
     /* LCD current — check only if LCD domain on */
     pstate = power_get_state();
     if (pstate & DOM_LCD) {
-        if (adc_get_current_ma(0) > (int16_t)i_thresh_max[0]) {
+        if (current_exceeds_threshold(0)) {
             i_consec[0]++;
             if (i_consec[0] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_LCD);
@@ -129,7 +141,7 @@ void fault_manager_process(void)
     /* Backlight current */
     pstate = power_get_state();
     if (pstate & DOM_BACKLIGHT) {
-        if (adc_get_current_ma(1) > (int16_t)i_thresh_max[1]) {
+        if (current_exceeds_threshold(1)) {
             i_consec[1]++;
             if (i_consec[1] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_BACKLIGHT);
@@ -143,7 +155,7 @@ void fault_manager_process(void)
     /* Scaler current */
     pstate = power_get_state();
     if (pstate & DOM_SCALER) {
-        if (adc_get_current_ma(2) > (int16_t)i_thresh_max[2]) {
+        if (current_exceeds_threshold(2)) {
             i_consec[2]++;
             if (i_consec[2] >= FAULT_CONFIRM_COUNT) {
                 apply_fault_policy(FAULT_SCALER);
@@ -158,7 +170,7 @@ void fault_manager_process(void)
     pstate = power_get_state();
     if (pstate & DOM_AUDIO) {
         for (uint8_t ch = 3; ch < 5; ch++) {
-            if (adc_get_current_ma(ch) > (int16_t)i_thresh_max[ch]) {
+            if (current_exceeds_threshold(ch)) {
                 i_consec[ch]++;
                 if (i_consec[ch] >= FAULT_CONFIRM_COUNT) {
                     apply_fault_policy(FAULT_AUDIO);

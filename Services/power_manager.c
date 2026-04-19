@@ -162,6 +162,7 @@ void power_safe_state(void)
     brightness_pwm = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
+    sseq           = STARTUP_IDLE;
     amp_active     = 0;
 }
 
@@ -534,11 +535,6 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
     if ((mask & DOM_LCD) && (value & DOM_LCD) && !(future & DOM_SCALER))
         return 1;
 
-    /* Sequencer must be idle to accept display commands */
-    uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
-    if (disp_mask && dseq != DSEQ_IDLE)
-        return 1;
-
     /* Simple domains (ETH1, ETH2, TOUCH) — direct control */
     static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
     for (uint8_t i = 0; i < 3; i++) {
@@ -549,6 +545,29 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         if (on) power_state |= dom;
         else    power_state &= ~dom;
     }
+
+    /* Audio — via sequencing SM (Rules §6.5, §9).
+     * Three distinct start states are possible:
+     *   OFF          (power_state=0, amp_active=0) -> full ON: POWER_AUDIO->SDZ->MUTE
+     *   safe-on      (power_state=1, amp_active=0) -> partial ON: SDZ->MUTE only
+     *                (entered by power_auto_startup per §6.5)
+     *   full-on      (power_state=1, amp_active=1) -> already active, no-op */
+    if ((mask & DOM_AUDIO) && aseq == ASEQ_IDLE) {
+        if (value & DOM_AUDIO) {
+            if (!amp_active) {
+                aseq = (power_state & DOM_AUDIO) ? ASEQ_ON_SDZ : ASEQ_ON_POWER;
+            }
+        } else if (power_state & DOM_AUDIO) {
+            aseq = ASEQ_OFF_MUTE;
+        }
+    }
+
+    /* Sequencer must be idle to accept display commands.
+     * Independent domains above must still be processed even when display
+     * sequencing is busy. */
+    uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+    if (disp_mask && dseq != DSEQ_IDLE)
+        return 1;
 
     /* Display domains — via sequencing SM (Rules 13.7) */
     if (disp_mask) {
@@ -577,22 +596,6 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
                    !(power_state & DOM_BACKLIGHT)) {
             /* BL-only ON when SCALER+LCD already on */
             dseq = DSEQ_UP_BL_ON;
-        }
-    }
-
-    /* Audio — via sequencing SM (Rules §6.5, §9).
-     * Three distinct start states are possible:
-     *   OFF          (power_state=0, amp_active=0) -> full ON: POWER_AUDIO->SDZ->MUTE
-     *   safe-on      (power_state=1, amp_active=0) -> partial ON: SDZ->MUTE only
-     *                (entered by power_auto_startup per §6.5)
-     *   full-on      (power_state=1, amp_active=1) -> already active, no-op */
-    if ((mask & DOM_AUDIO) && aseq == ASEQ_IDLE) {
-        if (value & DOM_AUDIO) {
-            if (!amp_active) {
-                aseq = (power_state & DOM_AUDIO) ? ASEQ_ON_SDZ : ASEQ_ON_POWER;
-            }
-        } else if (power_state & DOM_AUDIO) {
-            aseq = ASEQ_OFF_MUTE;
         }
     }
 

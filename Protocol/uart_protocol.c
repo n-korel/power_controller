@@ -8,6 +8,7 @@
 #include "fault_manager.h"
 #include "flash_cal.h"
 #include "bootloader.h"
+#include <limits.h>
 #include <string.h>
 
 /* ===== CRC-8/ATM table (poly=0x07, init=0x00) ===== */
@@ -133,9 +134,10 @@ static void parser_feed(uint8_t b)
         p_pkt.len = b;
         if (p_pkt.len == 0)
             p_state = PS_READ_CRC;
-        else if (p_pkt.len > PROTO_MAX_DATA)
+        else if (p_pkt.len > PROTO_MAX_DATA) {
             p_state = PS_WAIT_STX;
-        else
+            p_last_byte_ts = 0;
+        } else
             p_state = PS_READ_DATA;
         break;
 
@@ -163,6 +165,7 @@ static void parser_feed(uint8_t b)
                 p_ready = 1;
         }
         p_state = PS_WAIT_STX;
+        p_last_byte_ts = 0;
         break;
     }
 }
@@ -326,7 +329,7 @@ static void handle_set_thresholds(void)
             if ((idx + 2) > p_pkt.len) { ok = 0; break; }
             uint16_t mx = (uint16_t)p_pkt.data[idx] | ((uint16_t)p_pkt.data[idx+1] << 8);
             idx += 2;
-            if (mx == 0) { ok = 0; break; }
+            if (mx == 0U || mx > (uint16_t)INT16_MAX) { ok = 0; break; }
             fault_set_threshold(bit - 8 + 4, 0, mx);
         }
     }
@@ -356,6 +359,7 @@ void uart_protocol_process(void)
         rx_overflow = 0;
         rx_tail = rx_head;
         p_state = PS_WAIT_STX;
+        p_last_byte_ts = 0;
     } else {
         while (rx_tail != rx_head) {
             uint8_t b = rx_ring[rx_tail];
@@ -366,8 +370,10 @@ void uart_protocol_process(void)
 
     /* Packet timeout (50 ms) — drop half-parsed packet after idle period */
     if (p_state != PS_WAIT_STX) {
-        if ((systick_ms - p_last_byte_ts) > UART_PACKET_TIMEOUT_MS)
+        if ((systick_ms - p_last_byte_ts) > UART_PACKET_TIMEOUT_MS) {
             p_state = PS_WAIT_STX;
+            p_last_byte_ts = 0;
+        }
     }
 
     if (!p_ready) return;
