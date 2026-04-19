@@ -376,7 +376,7 @@ void uart_protocol_process(void)
         rx_tail = rx_head;
         p_state = PS_WAIT_STX;
         p_last_byte_ts = 0;
-    } else {
+    } else if (!p_ready) {
         while (rx_tail != rx_head) {
             uint8_t b = rx_ring[rx_tail];
             rx_tail = (uint16_t)((rx_tail + 1U) & UART_RX_RING_MASK);
