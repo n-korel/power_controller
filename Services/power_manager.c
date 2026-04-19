@@ -584,17 +584,23 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
             dseq = DSEQ_BLOFF_PWM_ZERO;
         } else if ((mask & DOM_SCALER) && (value & DOM_SCALER) && !(power_state & DOM_SCALER)) {
             /* SCALER ON (from OFF): full UP sequencing */
+            if (!input_get_pgood())
+                return 1;
             dseq_up_with_bl = want_bl_on ? 1 : 0;
             dseq = DSEQ_UP_SCALER_ON;
         } else if ((mask & DOM_LCD) && (value & DOM_LCD) &&
                    (power_state & DOM_SCALER) && !(power_state & DOM_LCD)) {
             /* LCD ON when SCALER already ON: partial sequencing (Rules 13.7) */
+            if (!input_get_pgood())
+                return 1;
             dseq_up_with_bl = want_bl_on ? 1 : 0;
             dseq = DSEQ_UP_RST_RELEASE;
         } else if (want_bl_on &&
                    (power_state & DOM_SCALER) && (power_state & DOM_LCD) &&
                    !(power_state & DOM_BACKLIGHT)) {
             /* BL-only ON when SCALER+LCD already on */
+            if (!input_get_pgood())
+                return 1;
             dseq = DSEQ_UP_BL_ON;
         }
     }

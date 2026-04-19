@@ -117,6 +117,16 @@ static void parser_feed(uint8_t b)
     }
     p_last_byte_ts = now;
 
+    /* README §9: STX always starts a new packet.
+     * If STX appears mid-frame (DATA/CRC/ETX), drop current parse and re-sync
+     * immediately instead of waiting for packet timeout. */
+    if ((b == PROTO_STX) &&
+        (p_state == PS_READ_DATA || p_state == PS_READ_CRC || p_state == PS_WAIT_ETX)) {
+        p_state    = PS_READ_CMD;
+        p_data_cnt = 0;
+        return;
+    }
+
     switch (p_state) {
     case PS_WAIT_STX:
         if (b == PROTO_STX) {
@@ -173,6 +183,10 @@ static void parser_feed(uint8_t b)
 /* ===== TX ===== */
 static void tx_send(uint8_t cmd, const uint8_t *data, uint8_t len)
 {
+    if (tx_busy_flag) {
+        return;
+    }
+
     uint8_t pos = 0;
     tx_buf[pos++] = PROTO_STX;
     tx_buf[pos++] = cmd;
@@ -187,7 +201,9 @@ static void tx_send(uint8_t cmd, const uint8_t *data, uint8_t len)
     tx_buf[pos++] = PROTO_ETX;
 
     tx_busy_flag = 1;
-    HAL_UART_Transmit_IT(&huart1, tx_buf, pos);
+    if (HAL_UART_Transmit_IT(&huart1, tx_buf, pos) != HAL_OK) {
+        tx_busy_flag = 0;
+    }
 }
 
 void uart_send_ack(uint8_t cmd, uint8_t status)
@@ -377,6 +393,7 @@ void uart_protocol_process(void)
     }
 
     if (!p_ready) return;
+    if (uart_tx_busy()) return;
     p_ready = 0;
 
     switch (p_pkt.cmd) {
