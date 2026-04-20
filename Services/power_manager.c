@@ -179,6 +179,7 @@ void power_emergency_display_off(void)
     power_state &= (uint8_t)~(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
     brightness_pwm = 0;
     dseq = DSEQ_IDLE;
+    bridge_rst_active = 0;
 }
 
 /* ===== Display sequencing SM ===== */
@@ -522,6 +523,10 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
     /* Compute desired future state for validation */
     uint8_t future = (power_state & ~(uint8_t)mask) | (uint8_t)(value & mask);
+    uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+    uint8_t next_dseq = DSEQ_IDLE;
+    uint8_t apply_dseq = 0;
+    uint8_t next_up_with_bl = dseq_up_with_bl;
 
     /* Rules §23: BACKLIGHT may be turned ON only if SCALER+LCD will also be ON.
      * Rules §24: SCALER=OFF / LCD=OFF while BL=ON must *not* be rejected here;
@@ -534,6 +539,51 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
     /* LCD ON without SCALER is forbidden (Rules 13.7) */
     if ((mask & DOM_LCD) && (value & DOM_LCD) && !(future & DOM_SCALER))
         return 1;
+
+    /* Display precheck: reject early to keep request application atomic.
+     * No domain state is changed before all display-side failures are ruled out. */
+    if (disp_mask) {
+        uint8_t want_scaler_off = (mask & DOM_SCALER) && !(value & DOM_SCALER);
+        uint8_t want_lcd_off    = (mask & DOM_LCD)     && !(value & DOM_LCD);
+        uint8_t want_bl_off     = (mask & DOM_BACKLIGHT) && !(value & DOM_BACKLIGHT);
+        uint8_t want_bl_on      = (mask & DOM_BACKLIGHT) && (value & DOM_BACKLIGHT);
+
+        if (dseq != DSEQ_IDLE)
+            return 1;
+
+        if (want_scaler_off || want_lcd_off) {
+            /* Turning off SCALER or LCD: full shutdown sequencing first */
+            next_dseq = DSEQ_DN_PWM_ZERO;
+            apply_dseq = 1;
+        } else if (want_bl_off && (power_state & DOM_BACKLIGHT)) {
+            /* BL-only off with 10ms delay (Rules 13.7) */
+            next_dseq = DSEQ_BLOFF_PWM_ZERO;
+            apply_dseq = 1;
+        } else if ((mask & DOM_SCALER) && (value & DOM_SCALER) && !(power_state & DOM_SCALER)) {
+            /* SCALER ON (from OFF): full UP sequencing */
+            if (!input_get_pgood())
+                return 1;
+            next_up_with_bl = want_bl_on ? 1 : 0;
+            next_dseq = DSEQ_UP_SCALER_ON;
+            apply_dseq = 1;
+        } else if ((mask & DOM_LCD) && (value & DOM_LCD) &&
+                   (power_state & DOM_SCALER) && !(power_state & DOM_LCD)) {
+            /* LCD ON when SCALER already ON: partial sequencing (Rules 13.7) */
+            if (!input_get_pgood())
+                return 1;
+            next_up_with_bl = want_bl_on ? 1 : 0;
+            next_dseq = DSEQ_UP_RST_RELEASE;
+            apply_dseq = 1;
+        } else if (want_bl_on &&
+                   (power_state & DOM_SCALER) && (power_state & DOM_LCD) &&
+                   !(power_state & DOM_BACKLIGHT)) {
+            /* BL-only ON when SCALER+LCD already on */
+            if (!input_get_pgood())
+                return 1;
+            next_dseq = DSEQ_UP_BL_ON;
+            apply_dseq = 1;
+        }
+    }
 
     /* Simple domains (ETH1, ETH2, TOUCH) — direct control */
     static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
@@ -562,47 +612,10 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         }
     }
 
-    /* Sequencer must be idle to accept display commands.
-     * Independent domains above must still be processed even when display
-     * sequencing is busy. */
-    uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
-    if (disp_mask && dseq != DSEQ_IDLE)
-        return 1;
-
-    /* Display domains — via sequencing SM (Rules 13.7) */
-    if (disp_mask) {
-        uint8_t want_scaler_off = (mask & DOM_SCALER) && !(value & DOM_SCALER);
-        uint8_t want_lcd_off    = (mask & DOM_LCD)     && !(value & DOM_LCD);
-        uint8_t want_bl_off     = (mask & DOM_BACKLIGHT) && !(value & DOM_BACKLIGHT);
-        uint8_t want_bl_on      = (mask & DOM_BACKLIGHT) && (value & DOM_BACKLIGHT);
-
-        if (want_scaler_off || want_lcd_off) {
-            /* Turning off SCALER or LCD: full shutdown sequencing first */
-            dseq = DSEQ_DN_PWM_ZERO;
-        } else if (want_bl_off && (power_state & DOM_BACKLIGHT)) {
-            /* BL-only off with 10ms delay (Rules 13.7) */
-            dseq = DSEQ_BLOFF_PWM_ZERO;
-        } else if ((mask & DOM_SCALER) && (value & DOM_SCALER) && !(power_state & DOM_SCALER)) {
-            /* SCALER ON (from OFF): full UP sequencing */
-            if (!input_get_pgood())
-                return 1;
-            dseq_up_with_bl = want_bl_on ? 1 : 0;
-            dseq = DSEQ_UP_SCALER_ON;
-        } else if ((mask & DOM_LCD) && (value & DOM_LCD) &&
-                   (power_state & DOM_SCALER) && !(power_state & DOM_LCD)) {
-            /* LCD ON when SCALER already ON: partial sequencing (Rules 13.7) */
-            if (!input_get_pgood())
-                return 1;
-            dseq_up_with_bl = want_bl_on ? 1 : 0;
-            dseq = DSEQ_UP_RST_RELEASE;
-        } else if (want_bl_on &&
-                   (power_state & DOM_SCALER) && (power_state & DOM_LCD) &&
-                   !(power_state & DOM_BACKLIGHT)) {
-            /* BL-only ON when SCALER+LCD already on */
-            if (!input_get_pgood())
-                return 1;
-            dseq = DSEQ_UP_BL_ON;
-        }
+    /* Display domains — via sequencing SM (Rules 13.7). */
+    if (apply_dseq) {
+        dseq_up_with_bl = next_up_with_bl;
+        dseq = (dseq_state_t)next_dseq;
     }
 
     return 0;
