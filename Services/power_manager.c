@@ -602,13 +602,16 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
      *   safe-on      (power_state=1, amp_active=0) -> partial ON: SDZ->MUTE only
      *                (entered by power_auto_startup per §6.5)
      *   full-on      (power_state=1, amp_active=1) -> already active, no-op */
-    if ((mask & DOM_AUDIO) && aseq == ASEQ_IDLE) {
+    if (mask & DOM_AUDIO) {
         if (value & DOM_AUDIO) {
-            if (!amp_active) {
+            if ((aseq == ASEQ_IDLE) && !amp_active) {
                 aseq = (power_state & DOM_AUDIO) ? ASEQ_ON_SDZ : ASEQ_ON_POWER;
             }
-        } else if (power_state & DOM_AUDIO) {
-            aseq = ASEQ_OFF_MUTE;
+        } else {
+            /* AUDIO=OFF has priority over any in-flight audio startup sequence. */
+            if (aseq != ASEQ_IDLE || (power_state & DOM_AUDIO)) {
+                aseq = ASEQ_OFF_MUTE;
+            }
         }
     }
 

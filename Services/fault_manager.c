@@ -56,6 +56,18 @@ static void apply_fault_policy(uint16_t flag)
         power_force_off_domains(DOM_AUDIO);
         break;
 
+    case FAULT_ETH1:
+        power_force_off_domains(DOM_ETH1);
+        break;
+
+    case FAULT_ETH2:
+        power_force_off_domains(DOM_ETH2);
+        break;
+
+    case FAULT_TOUCH:
+        power_force_off_domains(DOM_TOUCH);
+        break;
+
     case FAULT_PGOOD_LOST:
     case FAULT_V24_RANGE:
     case FAULT_V12_RANGE:
