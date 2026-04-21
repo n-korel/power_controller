@@ -1595,10 +1595,15 @@ sequenceDiagram
     participant Q7 as Q7 (Linux)
     participant MCU as MCU (STM32F030)
 
-    Q7->>MCU: STX CMD=01 LEN=00 CRC ETX
-    Note right of MCU: parse packet<br/>проверить CRC8/ATM
-    MCU-->>Q7: STX CMD=01 LEN=01 DATA=AA CRC ETX
-    Note left of Q7: status=0xAA → MCU alive
+    Note over Q7,MCU: Фрейм: [STX=02][CMD][LEN][DATA...][CRC][ETX=03]<br/>CRC8/ATM по [CMD][LEN][DATA...]
+    Q7->>MCU: 02 01 00 <CRC> 03
+    Note right of MCU: разбор + проверка CRC<br/>LEN=0 → DATA отсутствует
+    alt CRC верный
+        MCU-->>Q7: 02 01 01 AA <CRC> 03
+        Note left of Q7: status=0xAA → MCU alive (фиксированный маркер)
+    else CRC неверный / ошибка фрейминга
+        Note right of MCU: игнорировать фрейм (state без изменений)
+    end
 ```
 
 #### 20.4.2 GET_STATUS (0x04) — телеметрия
@@ -1609,10 +1614,15 @@ sequenceDiagram
     participant Q7 as Q7 (Linux)
     participant MCU as MCU
 
-    Q7->>MCU: STX CMD=04 LEN=00 CRC ETX
-    Note right of MCU: snapshot из DMA-буфера ADC<br/>state, fault_flags, inputs
-    MCU-->>Q7: STX CMD=04 LEN=26 DATA[26] CRC ETX
-    Note left of Q7: DATA (LE):<br/>v24,v12,v5,v3v3,<br/>i_lcd,i_bl,i_scaler,i_audio_l/r,<br/>temp0,temp1,state,fault_flags,inputs
+    Note over Q7,MCU: Запрос LEN=0, ответ LEN=26 (только DATA), все многобайтные поля Little Endian
+    Q7->>MCU: 02 04 00 <CRC> 03
+    Note right of MCU: snapshot из DMA-буфера ADC<br/>и текущие state / fault_flags / inputs
+    alt CRC верный
+        MCU-->>Q7: 02 04 1A DATA[26] <CRC> 03
+        Note left of Q7: Layout DATA (LE, точный порядок):<br/>v24,u16; v12,u16; v5,u16; v3v3,u16;<br/>i_lcd,u16; i_backlight,u16; i_scaler,u16;<br/>i_audio_l,u16; i_audio_r,u16;<br/>temp0,i16; temp1,i16;<br/>state,u8; fault_flags,u16; inputs,u8
+    else CRC неверный / ошибка фрейминга
+        Note right of MCU: игнорировать фрейм (state без изменений)
+    end
 ```
 
 #### 20.4.3 POWER_CTRL (0x02) — включение BACKLIGHT
@@ -1627,16 +1637,19 @@ sequenceDiagram
 
     rect rgba(200,255,200,0.2)
     Note over Q7,MCU: Сценарий A: SCALER=ON, LCD=ON
-    Q7->>MCU: CMD=02 mask=0x04 value=0x04 (BL=ON)
-    Note right of MCU: BACKLIGHT_ON=HIGH<br/>PWM start<br/>проверка BACKLIGHT_POWER_M
-    MCU-->>Q7: CMD=02 status=0x00 (OK)
+    Note over Q7,MCU: DATA запроса (LE): mask:uint16 + value:uint16
+    Q7->>MCU: 02 02 04 04 00 04 00 <CRC> 03
+    Note right of MCU: принять запрос<br/>запустить BL sequencing (без HAL_Delay())<br/>включить PWM, если разрешено
+    MCU-->>Q7: 02 02 01 00 <CRC> 03
+    Note left of Q7: status=0x00 (OK)
     end
 
     rect rgba(255,220,220,0.2)
     Note over Q7,MCU: Сценарий B: SCALER=OFF или LCD=OFF
-    Q7->>MCU: CMD=02 mask=0x04 value=0x04 (BL=ON)
-    Note right of MCU: отказ, state без изменений
-    MCU-->>Q7: CMD=02 status=0x01 (invalid)
+    Q7->>MCU: 02 02 04 04 00 04 00 <CRC> 03
+    Note right of MCU: отказ: BL запрещён при SCALER=OFF или LCD=OFF<br/>state без изменений
+    MCU-->>Q7: 02 02 01 01 <CRC> 03
+    Note left of Q7: status=0x01 (invalid)
     end
 ```
 
@@ -1651,16 +1664,16 @@ sequenceDiagram
     participant MCU as MCU
     participant HW as Железо (домены питания)
 
-    Note over MCU,HW: main loop: 5 последовательных превышений I_LCD_MAX
-    MCU->>HW: BACKLIGHT_OFF → LCD_OFF → RST_LOW → SCALER_OFF
-    Note right of MCU: fault_flags |= FAULT_LCD<br/>latched
+    Note over MCU,HW: main loop: подтверждение fault по правилу “5 подряд вне порога”
+    MCU->>HW: safe state (домены OFF) / shutdown sequencing
+    Note right of MCU: fault_flags |= FAULT_LCD (latched)<br/>авто-включения нет
 
     Q7->>MCU: CMD=04 GET_STATUS
     MCU-->>Q7: state (LCD/BL/SCALER=OFF), fault_flags=FAULT_LCD
 
     Q7->>MCU: CMD=05 RESET_FAULT
     MCU-->>Q7: status=0x00
-    Note right of MCU: fault_flags=0<br/>нагрузки остаются OFF
+    Note right of MCU: fault_flags=0<br/>нагрузки остаются OFF (без авто-включения)
 
     Q7->>MCU: CMD=02 POWER_CTRL (SCALER/LCD/BL=ON)
     Note right of MCU: display power-up sequencing<br/>(13.2 шаги 1-8)
@@ -1678,10 +1691,10 @@ sequenceDiagram
     participant MCU as MCU (firmware)
     participant ROM as STM32 ROM bootloader<br/>0x1FFF0000
 
-    Q7->>MCU: CMD=08 BOOTLOADER_ENTER
+    Q7->>MCU: 02 08 00 <CRC> 03
     Note right of MCU: safe state (домены OFF)<br/>SRAM magic := 0xDEADBEEF
-    MCU-->>Q7: CMD=08 status=0x00 (ACK)
-    Note right of MCU: дождаться TX complete<br/>NVIC_SystemReset()
+    MCU-->>Q7: 02 08 01 00 <CRC> 03
+    Note right of MCU: дождаться TX complete<br/>затем NVIC_SystemReset()
 
     MCU->>MCU: reset
     Note right of MCU: main(): magic обнаружен<br/>очистить magic, jump в ROM
@@ -1702,8 +1715,8 @@ sequenceDiagram
     participant Q7 as Q7 (PWRBTN# / SUS_S3#)
 
     Note over MCU: PGOOD=HIGH и SUS_S3#=LOW удерживается > 500 мс
-    MCU->>Q7: PWRBTN# = LOW (assert)
-    Note over MCU: удержать 150 мс
+    MCU->>Q7: PWRBTN# assert (LOW)
+    Note over MCU: hold 150 мс (systick_ms)
     MCU->>Q7: PWRBTN# release (Hi-Z)
     Note over MCU: cooldown 5 с<br/>повтор не чаще 1 раза / 5 с
 ```
