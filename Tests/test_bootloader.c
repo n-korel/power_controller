@@ -84,6 +84,28 @@ void test_process_plants_magic_and_resets_when_tx_idle(void)
     TEST_ASSERT_EQUAL_UINT32(1, hal_stub_nvic_reset_count);
 }
 
+void test_repeated_schedule_and_process_are_idempotent_until_reset_happens(void)
+{
+    bootloader_schedule();
+    bootloader_schedule();
+    mock_uart_busy = 1;
+
+    bootloader_process();
+    bootloader_process();
+    TEST_ASSERT_EQUAL_UINT32(0, hal_stub_nvic_reset_count);
+    TEST_ASSERT_NOT_EQUAL(SRAM_MAGIC_VALUE, boot_magic);
+    TEST_ASSERT_EQUAL_UINT8(1, boot_pending);
+
+    mock_uart_busy = 0;
+    bootloader_process();
+    TEST_ASSERT_EQUAL_UINT32(1, hal_stub_nvic_reset_count);
+
+    /* Extra process() calls must not "double reset". */
+    bootloader_process();
+    bootloader_process();
+    TEST_ASSERT_EQUAL_UINT32(1, hal_stub_nvic_reset_count);
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -92,5 +114,6 @@ int main(void)
     RUN_TEST(test_process_noop_when_not_scheduled);
     RUN_TEST(test_process_waits_while_tx_busy);
     RUN_TEST(test_process_plants_magic_and_resets_when_tx_idle);
+    RUN_TEST(test_repeated_schedule_and_process_are_idempotent_until_reset_happens);
     return UNITY_END();
 }

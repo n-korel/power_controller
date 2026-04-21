@@ -57,6 +57,7 @@ void test_backlight_on_rejected_without_scaler(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_LCD, power_state);
 }
 
 void test_backlight_on_rejected_without_lcd(void)
@@ -67,6 +68,7 @@ void test_backlight_on_rejected_without_lcd(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER, power_state);
 }
 
 void test_backlight_on_rejected_without_both(void)
@@ -76,6 +78,8 @@ void test_backlight_on_rejected_without_both(void)
     uint8_t r = power_ctrl_request(DOM_BACKLIGHT, DOM_BACKLIGHT);
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
 }
 
 void test_backlight_on_accepted_with_scaler_and_lcd(void)
@@ -86,6 +90,52 @@ void test_backlight_on_accepted_with_scaler_and_lcd(void)
 
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_BL_ON, dseq);
+}
+
+void test_conflicting_scaler_off_and_backlight_on_is_rejected_atomically(void)
+{
+    /* Conflict in one request: SCALER=OFF and BACKLIGHT=ON.
+     * Must be rejected without starting any sequencing or changing state. */
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    dseq = DSEQ_IDLE;
+
+    uint16_t mask  = DOM_SCALER | DOM_BACKLIGHT;
+    uint16_t value = DOM_BACKLIGHT; /* scaler off */
+
+    uint8_t r = power_ctrl_request(mask, value);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
+}
+
+void test_idempotent_request_does_not_restart_display_sequence_or_toggle_gpio(void)
+{
+    /* Already ON: repeating the same request must be a no-op. */
+    power_state = DOM_SCALER | DOM_LCD;
+    dseq = DSEQ_IDLE;
+    hal_stub_reset();
+
+    uint8_t r = power_ctrl_request(DOM_SCALER | DOM_LCD, DOM_SCALER | DOM_LCD);
+    TEST_ASSERT_EQUAL_UINT8(0, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
+}
+
+void test_unknown_bits_in_mask_or_value_are_rejected(void)
+{
+    power_state = 0;
+    hal_stub_reset();
+
+    uint16_t mask  = 0x0080;
+    uint16_t value = 0x0080;
+
+    uint8_t r = power_ctrl_request(mask, value);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
 /* ===== LCD constraints ===== */
@@ -266,6 +316,9 @@ int main(void)
     RUN_TEST(test_backlight_on_rejected_without_lcd);
     RUN_TEST(test_backlight_on_rejected_without_both);
     RUN_TEST(test_backlight_on_accepted_with_scaler_and_lcd);
+    RUN_TEST(test_conflicting_scaler_off_and_backlight_on_is_rejected_atomically);
+    RUN_TEST(test_idempotent_request_does_not_restart_display_sequence_or_toggle_gpio);
+    RUN_TEST(test_unknown_bits_in_mask_or_value_are_rejected);
     RUN_TEST(test_lcd_on_rejected_without_scaler);
     RUN_TEST(test_lcd_on_accepted_with_scaler);
     RUN_TEST(test_display_cmd_rejected_when_sequencer_busy);

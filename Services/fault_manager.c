@@ -32,55 +32,16 @@ static uint8_t current_exceeds_threshold(uint8_t ch)
     return ((int32_t)current_ma > threshold_ma) ? 1U : 0U;
 }
 
-/* ===== Fault -> shutdown policy (Rules 7.3) ===== */
+/* ===== Fault handling (Rules_POWER.md инварианты 25-28, 42) ===== */
 static void apply_fault_policy(uint16_t flag)
 {
-    fault_flags |= flag;
-
-    switch (flag) {
-    case FAULT_SCALER:
-    case FAULT_SEQ_ABORT:
-        power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
-        break;
-
-    case FAULT_LCD:
-        power_force_off_domains(DOM_LCD | DOM_BACKLIGHT);
-        break;
-
-    case FAULT_BACKLIGHT:
-        power_force_off_domains(DOM_BACKLIGHT);
-        break;
-
-    case FAULT_AUDIO:
-    case FAULT_AMP_FAULTZ:
-        power_force_off_domains(DOM_AUDIO);
-        break;
-
-    case FAULT_ETH1:
-        power_force_off_domains(DOM_ETH1);
-        break;
-
-    case FAULT_ETH2:
-        power_force_off_domains(DOM_ETH2);
-        break;
-
-    case FAULT_TOUCH:
-        power_force_off_domains(DOM_TOUCH);
-        break;
-
-    case FAULT_PGOOD_LOST:
-    case FAULT_V24_RANGE:
-    case FAULT_V12_RANGE:
-    case FAULT_V5_RANGE:
-    case FAULT_V3V3_RANGE:
-    case FAULT_INTERNAL:
-        power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT |
-                                DOM_AUDIO | DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
-        break;
-
-    default:
-        break;
+    if (flag == 0U) {
+        return;
     }
+
+    /* Invariant 42: for any fault, enter full safe state first, then latch flags. */
+    power_safe_state();
+    fault_flags |= flag;
 }
 
 /* ===== Init ===== */

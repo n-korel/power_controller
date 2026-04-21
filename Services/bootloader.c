@@ -42,5 +42,6 @@ void bootloader_process(void)
 
     boot_magic = SRAM_MAGIC_VALUE;
     __DSB();
+    boot_pending = 0;
     NVIC_SystemReset();
 }

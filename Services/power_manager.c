@@ -193,8 +193,7 @@ static void dseq_process(void)
      * already calls power_emergency_display_off() internally. */
     if (dseq != DSEQ_IDLE && dseq < DSEQ_DN_PWM_ZERO) {
         if (!input_get_pgood()) {
-            fault_set_flag(FAULT_PGOOD_LOST);
-            fault_set_flag(FAULT_SEQ_ABORT);
+            fault_set_flag(FAULT_PGOOD_LOST | FAULT_SEQ_ABORT);
             return;
         }
     }
@@ -504,7 +503,9 @@ void power_set_brightness(uint16_t pwm)
 {
     if (pwm > 1000) pwm = 1000;
     brightness_pwm = pwm;
-    if (power_state & DOM_BACKLIGHT)
+    if ((power_state & DOM_BACKLIGHT) &&
+        (dseq == DSEQ_IDLE ||
+         (dseq >= DSEQ_UP_SCALER_ON && dseq <= DSEQ_UP_DONE)))
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, pwm);
 }
 
@@ -521,6 +522,13 @@ void power_reset_bridge(void)
 
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
+    /* Reject any unknown bits in mask/value (Rules §4.5 / invariant list §11: domain bits 0..6 only). */
+    const uint16_t valid = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
+                                      DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
+    if (((mask | value) & (uint16_t)~valid) != 0U) {
+        return 1;
+    }
+
     /* Compute desired future state for validation */
     uint8_t future = (power_state & ~(uint8_t)mask) | (uint8_t)(value & mask);
     uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);

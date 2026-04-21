@@ -181,6 +181,133 @@ void test_pgood_lost_during_up_aborts_with_both_flags(void)
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
 }
 
+void test_pgood_lost_during_down_does_not_introduce_unsafe_transitions(void)
+{
+    /* Contract focus: DOWN sequencing should remain safe and monotonic even if
+     * PGOOD drops mid-down (PGOOD check is for UP; fault policy handles PGOOD elsewhere). */
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    htim17.Instance_data.CCR1 = 600;
+    mock_pgood = 1;
+
+    uint8_t r = power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, 0);
+    TEST_ASSERT_EQUAL_UINT8(0, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
+
+    tick_ms(5);
+    mock_pgood = 0;
+    tick_ms(150);
+
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    /* No new flags must be synthesized by the DOWN SM itself. */
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_PGOOD_LOST | FAULT_SEQ_ABORT));
+}
+
+void test_reentrancy_guard_rejects_new_full_up_while_active(void)
+{
+    seed_valid_adc();
+    power_ctrl_request(DOM_SCALER | DOM_LCD, DOM_SCALER | DOM_LCD);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+
+    uint8_t r = power_ctrl_request(DOM_SCALER, DOM_SCALER);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+}
+
+void test_reentrancy_guard_rejects_new_full_down_while_active(void)
+{
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, 0);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+
+    uint8_t r = power_ctrl_request(DOM_SCALER, 0);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+}
+
+void test_reentrancy_guard_rejects_new_bl_only_off_while_active(void)
+{
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    power_ctrl_request(DOM_BACKLIGHT, 0);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+
+    uint8_t r = power_ctrl_request(DOM_BACKLIGHT, 0);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+}
+
+void test_reentrancy_guard_rejects_new_lcd_partial_up_while_active(void)
+{
+    power_state = DOM_SCALER;
+    seed_valid_adc();
+    power_ctrl_request(DOM_LCD, DOM_LCD);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+
+    uint8_t r = power_ctrl_request(DOM_LCD, DOM_LCD);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+}
+
+void test_verify_timeout_boundaries_scaler_stage(void)
+{
+    /* SCALER rail stays low → verify fails until timeout boundary. */
+    mock_raw_avg[ADC_IDX_LCD_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_BL_POWER]  = 1500;
+    power_ctrl_request(DOM_SCALER, DOM_SCALER);
+
+    /* Advance into VERIFY stage. */
+    tick_ms(SEQ_DELAY_SCALER_ON + 1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_SCALER, dseq);
+
+    /* timeout-1: no abort yet */
+    tick_ms(SEQ_VERIFY_TIMEOUT - 1);
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_SCALER, dseq);
+
+    /* ==timeout: abort must latch */
+    tick_ms(1);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+}
+
+void test_verify_timeout_boundaries_lcd_stage(void)
+{
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_BL_POWER]     = 1500;
+    power_ctrl_request(DOM_SCALER | DOM_LCD, DOM_SCALER | DOM_LCD);
+
+    /* Advance to LCD VERIFY stage (robust to off-by-one tick boundaries). */
+    for (uint32_t i = 0; i < 1000 && dseq != DSEQ_UP_VERIFY_LCD; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_LCD, dseq);
+
+    tick_ms(SEQ_VERIFY_TIMEOUT - 1);
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_LCD, dseq);
+
+    tick_ms(1);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+}
+
+void test_verify_timeout_boundaries_bl_stage(void)
+{
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    /* Advance to BL VERIFY stage. */
+    for (uint32_t i = 0; i < 1000 && dseq != DSEQ_UP_VERIFY_BL; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+
+    tick_ms(SEQ_VERIFY_TIMEOUT - 1);
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+
+    tick_ms(1);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+}
+
 /* ===== DOWN sequence (Rules §13.7) ===== */
 
 void test_full_down_sequence_orders_pwm_bl_lcd_rst_scaler(void)
@@ -293,8 +420,16 @@ int main(void)
     RUN_TEST(test_up_sequence_lcd_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_up_sequence_bl_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_pgood_lost_during_up_aborts_with_both_flags);
+    RUN_TEST(test_pgood_lost_during_down_does_not_introduce_unsafe_transitions);
     RUN_TEST(test_full_down_sequence_orders_pwm_bl_lcd_rst_scaler);
     RUN_TEST(test_bloff_only_sequence_10ms_delay_then_gpio);
     RUN_TEST(test_lcd_on_with_scaler_already_on_uses_partial_seq);
+    RUN_TEST(test_reentrancy_guard_rejects_new_full_up_while_active);
+    RUN_TEST(test_reentrancy_guard_rejects_new_full_down_while_active);
+    RUN_TEST(test_reentrancy_guard_rejects_new_bl_only_off_while_active);
+    RUN_TEST(test_reentrancy_guard_rejects_new_lcd_partial_up_while_active);
+    RUN_TEST(test_verify_timeout_boundaries_scaler_stage);
+    RUN_TEST(test_verify_timeout_boundaries_lcd_stage);
+    RUN_TEST(test_verify_timeout_boundaries_bl_stage);
     return UNITY_END();
 }

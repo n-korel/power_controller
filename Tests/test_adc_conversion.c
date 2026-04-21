@@ -16,8 +16,8 @@ volatile uint32_t systick_ms;
 
 static uint16_t v_to_raw_mv(uint16_t raw)
 {
-    uint32_t adc_mv = (uint32_t)raw * ADC_VREF_MV / ADC_RESOLUTION;
-    return (uint16_t)(adc_mv * VDIV_MULT / VDIV_DIV);
+    /* Keep rounding identical to ADC_RAIL_MV_FROM_RAW() (single source of truth). */
+    return (uint16_t)ADC_RAIL_MV_FROM_RAW(raw);
 }
 
 void setUp(void)
@@ -225,6 +225,37 @@ void test_temp_getter_ignores_idx_for_all_values(void)
     TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(255));
 }
 
+void test_temp_minus32768_stable_after_offset_changes_and_processing(void)
+{
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(0));
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(1));
+
+    adc_set_current_offset(0, 0);
+    adc_set_current_offset(0, 4095);
+    dma_buf[ADC_IDX_V24] = 1234;
+    dma_buf[ADC_IDX_LCD_CURRENT] = 4095;
+    for (uint8_t i = 0; i < 20; i++) adc_service_process();
+
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(0));
+    TEST_ASSERT_EQUAL_INT16(-32768, adc_get_temp(1));
+}
+
+void test_current_conversion_no_overflow_on_extreme_raw_and_offset(void)
+{
+    /* Stress integer-only arithmetic with extremes; must not overflow or crash. */
+    adc_set_current_offset(0, 0);
+    dma_buf[ADC_IDX_LCD_CURRENT] = 4095;
+    adc_service_process();
+    int16_t hi = adc_get_current_ma(0);
+    TEST_ASSERT_TRUE(hi > 0);
+
+    adc_set_current_offset(0, 4095);
+    dma_buf[ADC_IDX_LCD_CURRENT] = 0;
+    adc_service_process();
+    int16_t lo = adc_get_current_ma(0);
+    TEST_ASSERT_TRUE(lo < 0);
+}
+
 /* ===== Offset setter bounds (ch < CURRENT_CHANNELS) ===== */
 
 void test_set_offset_out_of_range_ch_is_noop(void)
@@ -297,7 +328,9 @@ int main(void)
     RUN_TEST(test_current_getter_out_of_range);
     RUN_TEST(test_temp_always_returns_minus32768);
     RUN_TEST(test_temp_getter_ignores_idx_for_all_values);
+    RUN_TEST(test_temp_minus32768_stable_after_offset_changes_and_processing);
     RUN_TEST(test_set_offset_out_of_range_ch_is_noop);
     RUN_TEST(test_current_drift_averaged_over_window);
+    RUN_TEST(test_current_conversion_no_overflow_on_extreme_raw_and_offset);
     return UNITY_END();
 }

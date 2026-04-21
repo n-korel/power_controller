@@ -18,6 +18,7 @@ static uint8_t  mock_input_packed;
 static uint8_t  mock_power_ctrl_result;
 static uint16_t mock_power_ctrl_mask;
 static uint16_t mock_power_ctrl_value;
+static uint8_t  mock_power_ctrl_called;
 static uint16_t mock_set_brightness_pwm;
 static uint8_t  mock_set_brightness_called;
 static uint8_t  mock_fault_clear_called;
@@ -44,6 +45,7 @@ uint8_t  power_ctrl_request(uint16_t m, uint16_t v)
 {
     mock_power_ctrl_mask  = m;
     mock_power_ctrl_value = v;
+    mock_power_ctrl_called = 1;
     return mock_power_ctrl_result;
 }
 void     power_set_brightness(uint16_t p)
@@ -104,6 +106,16 @@ static void feed_bytes(const uint8_t *data, uint16_t len)
     drain_ring_into_parser();
 }
 
+static void parse_bytes_direct(const uint8_t *data, uint16_t len)
+{
+    p_state = PS_WAIT_STX;
+    p_ready = 0;
+    p_last_byte_ts = 0;
+    p_data_cnt = 0;
+    for (uint16_t i = 0; i < len; i++)
+        parser_feed(data[i]);
+}
+
 /* Build a full packet [STX][CMD][LEN][DATA][CRC][ETX] into out, return total length */
 static uint16_t build_packet(uint8_t *out, uint8_t cmd, const uint8_t *data, uint8_t len)
 {
@@ -115,11 +127,12 @@ static uint16_t build_packet(uint8_t *out, uint8_t cmd, const uint8_t *data, uin
         memcpy(&out[pos], data, len);
         pos += len;
     }
-    uint8_t crc = 0;
-    crc = crc8_table[crc ^ cmd];
-    crc = crc8_table[crc ^ len];
-    for (uint8_t i = 0; i < len; i++)
-        crc = crc8_table[crc ^ data[i]];
+    uint8_t crc_buf[PROTO_MAX_DATA + 2];
+    crc_buf[0] = cmd;
+    crc_buf[1] = len;
+    if (len > 0)
+        memcpy(&crc_buf[2], data, len);
+    uint8_t crc = crc8_calc(crc_buf, (uint8_t)(2U + len));
     out[pos++] = crc;
     out[pos++] = PROTO_ETX;
     return pos;
@@ -127,16 +140,22 @@ static uint16_t build_packet(uint8_t *out, uint8_t cmd, const uint8_t *data, uin
 
 void setUp(void)
 {
-    p_state = PS_WAIT_STX;
-    p_ready = 0;
-    tx_busy_flag = 0;
+    uart_protocol_init();
+    /* uart_protocol_init() does not touch these internals */
     rx_head = 0;
     rx_tail = 0;
     rx_overflow = 0;
+    p_state = PS_WAIT_STX;
+    p_ready = 0;
+    tx_busy_flag = 0;
+    p_last_byte_ts = 0;
+    p_data_cnt = 0;
+    p_crc_rx = 0;
     systick_ms = 1000;
     mock_power_ctrl_result = 0;
     mock_power_ctrl_mask   = 0;
     mock_power_ctrl_value  = 0;
+    mock_power_ctrl_called = 0;
     mock_set_brightness_pwm    = 0xFFFF;
     mock_set_brightness_called = 0;
     mock_fault_clear_called       = 0;
@@ -188,12 +207,54 @@ void test_parser_valid_power_ctrl(void)
     uint8_t pkt[16];
     uint16_t n = build_packet(pkt, CMD_POWER_CTRL, data, 4);
 
-    feed_bytes(pkt, n);
+    /* Direct-feed the parser to isolate from RX ring plumbing. */
+    p_state = PS_WAIT_STX;
+    p_ready = 0;
+    p_last_byte_ts = 0;
+    for (uint16_t i = 0; i < n; i++)
+        parser_feed(pkt[i]);
 
     TEST_ASSERT_EQUAL_UINT8(1, p_ready);
     TEST_ASSERT_EQUAL_HEX8(CMD_POWER_CTRL, p_pkt.cmd);
     TEST_ASSERT_EQUAL_UINT8(4, p_pkt.len);
     TEST_ASSERT_EQUAL_MEMORY(data, p_pkt.data, 4);
+}
+
+void test_parser_state_progression_len4_packet(void)
+{
+    uint8_t data[4] = { 0x07, 0x00, 0x03, 0x00 };
+    uint8_t pkt[16];
+    uint16_t n = build_packet(pkt, CMD_POWER_CTRL, data, 4);
+    TEST_ASSERT_EQUAL_UINT16(9, n);
+
+    p_state = PS_WAIT_STX;
+    p_ready = 0;
+    p_last_byte_ts = 0;
+    p_data_cnt = 0;
+
+    parser_feed(pkt[0]); /* STX */
+    TEST_ASSERT_EQUAL_INT(PS_READ_CMD, p_state);
+    parser_feed(pkt[1]); /* CMD */
+    TEST_ASSERT_EQUAL_INT(PS_READ_LEN, p_state);
+    parser_feed(pkt[2]); /* LEN */
+    TEST_ASSERT_EQUAL_INT(PS_READ_DATA, p_state);
+    TEST_ASSERT_EQUAL_UINT8(4, p_pkt.len);
+
+    parser_feed(pkt[3]);
+    TEST_ASSERT_EQUAL_INT(PS_READ_DATA, p_state);
+    TEST_ASSERT_EQUAL_UINT8(1, p_data_cnt);
+    parser_feed(pkt[4]);
+    TEST_ASSERT_EQUAL_UINT8(2, p_data_cnt);
+    parser_feed(pkt[5]);
+    TEST_ASSERT_EQUAL_UINT8(3, p_data_cnt);
+    parser_feed(pkt[6]);
+    TEST_ASSERT_EQUAL_INT(PS_READ_CRC, p_state);
+
+    parser_feed(pkt[7]); /* CRC */
+    TEST_ASSERT_EQUAL_INT(PS_WAIT_ETX, p_state);
+    parser_feed(pkt[8]); /* ETX */
+    TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
+    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
 }
 
 void test_parser_zero_length_data(void)
@@ -361,12 +422,36 @@ void test_dispatch_power_ctrl_bad_len_nack(void)
     uint8_t pkt[16];
     uint16_t n = build_packet(pkt, CMD_POWER_CTRL, data, 2);
 
+    parse_bytes_direct(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_HEX8(CMD_POWER_CTRL, tx_buf[1]);
+    TEST_ASSERT_EQUAL_UINT8(1, tx_buf[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x01, tx_buf[3]);
+}
+
+void test_dispatch_power_ctrl_rejects_unknown_bits_in_mask_or_value(void)
+{
+    /* Unknown bits must be rejected (Rules invariant #19: state bits 0..6 only). */
+    mock_power_ctrl_result = 1; /* reject */
+
+    uint16_t mask  = 0x0080; /* bit7 is unknown */
+    uint16_t value = 0x0080;
+    uint8_t data[4] = {
+        (uint8_t)(mask & 0xFF), (uint8_t)(mask >> 8),
+        (uint8_t)(value & 0xFF), (uint8_t)(value >> 8),
+    };
+    uint8_t pkt[16];
+    uint16_t n = build_packet(pkt, CMD_POWER_CTRL, data, 4);
+
     feed_bytes(pkt, n);
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_HEX8(CMD_POWER_CTRL, tx_buf[1]);
     TEST_ASSERT_EQUAL_UINT8(1, tx_buf[2]);
     TEST_ASSERT_EQUAL_HEX8(0x01, tx_buf[3]);
+    /* Protocol should still dispatch (power_ctrl_request called) but must reject. */
+    TEST_ASSERT_EQUAL_UINT8(1, mock_power_ctrl_called);
 }
 
 void test_dispatch_set_brightness_over_1000_rejected(void)
@@ -376,7 +461,7 @@ void test_dispatch_set_brightness_over_1000_rejected(void)
     uint8_t pkt[16];
     uint16_t n = build_packet(pkt, CMD_SET_BRIGHTNESS, data, 2);
 
-    feed_bytes(pkt, n);
+    parse_bytes_direct(pkt, n);
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, tx_buf[1]);
@@ -391,7 +476,9 @@ void test_dispatch_set_brightness_valid(void)
     uint8_t pkt[16];
     uint16_t n = build_packet(pkt, CMD_SET_BRIGHTNESS, data, 2);
 
-    feed_bytes(pkt, n);
+    parse_bytes_direct(pkt, n);
+    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
+    TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, p_pkt.cmd);
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, tx_buf[1]);
@@ -427,12 +514,77 @@ void test_dispatch_set_thresholds_rejects_unknown_bits(void)
     uint8_t pkt[16];
     uint16_t n = build_packet(pkt, CMD_SET_THRESHOLDS, data, sizeof(data));
 
+    parse_bytes_direct(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_HEX8(CMD_SET_THRESHOLDS, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x01, tx_buf[3]);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_thresh_count);
+}
+
+void test_dispatch_set_thresholds_rejects_truncated_payload(void)
+{
+    /* mask selects V24 thresholds, but provides only min (missing max) */
+    uint16_t mask = 0x0001;
+    uint16_t mn = 20000;
+    uint8_t data[] = {
+        (uint8_t)(mask & 0xFF), (uint8_t)(mask >> 8),
+        (uint8_t)(mn & 0xFF),   (uint8_t)(mn >> 8),
+        /* missing max */
+    };
+    uint8_t pkt[32];
+    uint16_t n = build_packet(pkt, CMD_SET_THRESHOLDS, data, sizeof(data));
+
     feed_bytes(pkt, n);
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_HEX8(CMD_SET_THRESHOLDS, tx_buf[1]);
     TEST_ASSERT_EQUAL_HEX8(0x01, tx_buf[3]);
     TEST_ASSERT_EQUAL_UINT8(0, mock_thresh_count);
+}
+
+void test_dispatch_set_thresholds_rejects_extra_bytes(void)
+{
+    /* mask selects one current threshold (I_LCD max) = 2 bytes, but payload has extra tail */
+    uint16_t mask = (1U << 8); /* current bit8 */
+    uint16_t mx = 1000;
+    uint8_t data[] = {
+        (uint8_t)(mask & 0xFF), (uint8_t)(mask >> 8),
+        (uint8_t)(mx & 0xFF),   (uint8_t)(mx >> 8),
+        0xAA, 0x55, /* extra bytes must be rejected */
+    };
+    uint8_t pkt[32];
+    uint16_t n = build_packet(pkt, CMD_SET_THRESHOLDS, data, sizeof(data));
+
+    feed_bytes(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_HEX8(CMD_SET_THRESHOLDS, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x01, tx_buf[3]);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_thresh_count);
+}
+
+void test_parser_resync_on_stx_after_bad_packet(void)
+{
+    /* Feed a bad packet (CRC mismatch), then a valid packet starting at an in-stream STX.
+     * Parser must re-sync and accept the second packet. */
+    uint8_t bad[16];
+    uint16_t nb = build_packet(bad, CMD_PING, NULL, 0);
+    bad[nb - 2] ^= 0xFF; /* corrupt CRC */
+
+    uint8_t good[16];
+    uint16_t ng = build_packet(good, CMD_GET_STATUS, NULL, 0);
+
+    uint8_t stream[64];
+    uint16_t pos = 0;
+    memcpy(&stream[pos], bad, nb); pos += nb;
+    memcpy(&stream[pos], good, ng); pos += ng;
+
+    feed_bytes(stream, pos);
+
+    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
+    TEST_ASSERT_EQUAL_HEX8(CMD_GET_STATUS, p_pkt.cmd);
+    TEST_ASSERT_EQUAL_UINT8(0, p_pkt.len);
 }
 
 void test_dispatch_reset_fault_clears_flags_and_returns_ack(void)
@@ -472,6 +624,9 @@ void test_dispatch_calibrate_offset_forwards_result_code(void)
     uart_protocol_process();
     TEST_ASSERT_EQUAL_HEX8(CMD_CALIBRATE_OFFSET, tx_buf[1]);
     TEST_ASSERT_EQUAL_HEX8(0x00, tx_buf[3]);
+
+    /* In the real system TX-busy is cleared by HAL_UART_TxCpltCallback. */
+    uart_tx_cplt_cb();
 
     /* Failure path (e.g. PGOOD gate / flash error) */
     memset(tx_buf, 0, sizeof(tx_buf));
@@ -612,6 +767,7 @@ int main(void)
     RUN_TEST(test_parser_valid_ping_packet);
     RUN_TEST(test_parser_valid_get_status_request);
     RUN_TEST(test_parser_valid_power_ctrl);
+    RUN_TEST(test_parser_state_progression_len4_packet);
     RUN_TEST(test_parser_zero_length_data);
     RUN_TEST(test_parser_bad_crc_rejected);
     RUN_TEST(test_parser_bad_etx_rejected);
@@ -623,10 +779,13 @@ int main(void)
     RUN_TEST(test_dispatch_unknown_cmd_nack);
     RUN_TEST(test_dispatch_get_status_layout_26_bytes);
     RUN_TEST(test_dispatch_power_ctrl_bad_len_nack);
+    RUN_TEST(test_dispatch_power_ctrl_rejects_unknown_bits_in_mask_or_value);
     RUN_TEST(test_dispatch_set_brightness_over_1000_rejected);
     RUN_TEST(test_dispatch_set_brightness_valid);
     RUN_TEST(test_dispatch_set_thresholds_validates_min_lt_max);
     RUN_TEST(test_dispatch_set_thresholds_rejects_unknown_bits);
+    RUN_TEST(test_dispatch_set_thresholds_rejects_truncated_payload);
+    RUN_TEST(test_dispatch_set_thresholds_rejects_extra_bytes);
     RUN_TEST(test_dispatch_reset_fault_clears_flags_and_returns_ack);
     RUN_TEST(test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge);
     RUN_TEST(test_dispatch_calibrate_offset_forwards_result_code);
@@ -636,5 +795,6 @@ int main(void)
     RUN_TEST(test_ping_response_data_is_single_0xAA_byte);
     RUN_TEST(test_rx_isr_does_not_touch_parser_state);
     RUN_TEST(test_rx_ring_overflow_sets_flag_and_resets_parser);
+    RUN_TEST(test_parser_resync_on_stx_after_bad_packet);
     return UNITY_END();
 }

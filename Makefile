@@ -356,6 +356,32 @@ WARN_CFLAGS      = $(WARN_MCU) -std=gnu11 -fsyntax-only \
 
 .PHONY: lint tidy cppcheck warnings-check lint-install
 
+#######################################
+# HOST UNIT TESTS (Tests/)
+# Contract: does not affect MCU build; tests run on host gcc.
+# See Rules_POWER.md (invariants) — this section only adds build recipes.
+#######################################
+
+.PHONY: test test-clean contract-check
+
+# Run all host unit tests (Unity) from Tests/
+test:
+	$(MAKE) -f Tests/Makefile
+
+# Run contract-only check (YAML vs config.h) from Tests/
+contract-check:
+	$(MAKE) -f Tests/Makefile contract_check
+
+# Clean host test artifacts
+test-clean:
+	$(MAKE) -f Tests/Makefile clean
+
+# Pass-through for individual suites, e.g.:
+#   make test_crc
+#   make test_power_sequence
+test_%:
+	$(MAKE) -f Tests/Makefile $@
+
 lint-install:
 	@echo ">>> Installing clang-tidy and cppcheck (sudo required)..."
 	sudo apt-get update && sudo apt-get install -y clang-tidy cppcheck

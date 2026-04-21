@@ -229,10 +229,12 @@ def main() -> int:
     adc_yaml_path = os.path.join(repo_root, "contract", "adc_channels.yaml")
     proto_yaml_path = os.path.join(repo_root, "contract", "protocol.yaml")
     config_h_path = os.path.join(repo_root, "Config", "config.h")
+    main_c_path = os.path.join(repo_root, "Core", "Src", "main.c")
 
     adc_yaml = read_text(adc_yaml_path)
     proto_yaml = read_text(proto_yaml_path)
     config_h = read_text(config_h_path)
+    main_c = read_text(main_c_path)
 
     defs = parse_config_h_defines(config_h)
     adc_enum = parse_config_h_adc_enum(config_h)
@@ -313,6 +315,46 @@ def main() -> int:
             die(f"domain_bits: no DOM_* for {dom_name!r} in config.h")
         expected_mask = 1 << int(bitpos)
         assert_eq(f"DOM_{dom_name}", dom_map[dom_name], expected_mask)
+
+    # Runtime/implementation guards (Rules invariant #7, #48-#50)
+    # - No HAL_Delay() in sequencing/state-machine modules
+    # - IWDG refresh is called exactly once in main loop and nowhere else
+    guard_files = [
+        os.path.join(repo_root, "Services", "power_manager.c"),
+        os.path.join(repo_root, "Services", "fault_manager.c"),
+        os.path.join(repo_root, "Protocol", "uart_protocol.c"),
+        os.path.join(repo_root, "Core", "Src", "main.c"),
+        os.path.join(repo_root, "Core", "Src", "stm32f0xx_it.c"),
+    ]
+    for p in guard_files:
+        t = read_text(p)
+        if "HAL_Delay(" in t:
+            die(f"HAL_Delay() is forbidden here: {os.path.relpath(p, repo_root)}")
+
+    # IWDG refresh location/uniqueness check
+    iwdg_hits: list[str] = []
+    scan_dirs = [
+        os.path.join(repo_root, "Core", "Src"),
+        os.path.join(repo_root, "Services"),
+        os.path.join(repo_root, "Protocol"),
+    ]
+    for d in scan_dirs:
+        for name in os.listdir(d):
+            if not name.endswith(".c"):
+                continue
+            p = os.path.join(d, name)
+            t = read_text(p)
+            if "HAL_IWDG_Refresh(" in t:
+                iwdg_hits.append(os.path.relpath(p, repo_root))
+
+    if iwdg_hits != ["Core/Src/main.c"]:
+        die(f"IWDG refresh must appear only in Core/Src/main.c, found: {iwdg_hits}")
+
+    # And it must be in the main loop (not in init)
+    if "while (1)" not in main_c or "HAL_IWDG_Refresh(" not in main_c:
+        die("main.c: missing while(1) loop or HAL_IWDG_Refresh")
+    if main_c.find("HAL_IWDG_Refresh(") < main_c.find("while (1)"):
+        die("main.c: HAL_IWDG_Refresh must be inside main while(1) loop")
 
     print("contract_check: OK")
     return 0

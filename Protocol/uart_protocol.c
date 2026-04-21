@@ -117,9 +117,12 @@ static void parser_feed(uint8_t b)
     }
     p_last_byte_ts = now;
 
-    /* README §9: STX always starts a new packet.
-     * If STX appears mid-frame (DATA/CRC/ETX), drop current parse and re-sync
-     * immediately instead of waiting for packet timeout. */
+    /* README §9 / Rules invariant #12: STX always starts a new packet.
+     * Re-sync from an in-flight packet on STX to recover after corruption.
+     *
+     * IMPORTANT: do NOT treat STX as a re-sync trigger while we are reading
+     * the CMD byte itself, because command codes are allowed to equal 0x02
+     * (e.g. CMD_POWER_CTRL = 0x02). */
     if ((b == PROTO_STX) &&
         (p_state == PS_READ_DATA || p_state == PS_READ_CRC || p_state == PS_WAIT_ETX)) {
         p_state    = PS_READ_CMD;
@@ -327,6 +330,14 @@ static void handle_set_thresholds(void)
     uint8_t idx = 2;
     uint8_t ok  = 1;
 
+    typedef struct {
+        uint8_t  idx;
+        uint16_t mn;
+        uint16_t mx;
+    } th_update_t;
+    th_update_t upd[9];
+    uint8_t upd_n = 0;
+
     /* Bits 0-3: voltage thresholds (pair min+max, 4 bytes each) */
     for (uint8_t bit = 0; bit < 4; bit++) {
         if (!(mask & (1U << bit))) continue;
@@ -335,7 +346,15 @@ static void handle_set_thresholds(void)
         uint16_t mx = (uint16_t)p_pkt.data[idx+2] | ((uint16_t)p_pkt.data[idx+3] << 8);
         idx += 4;
         if (mn >= mx) { ok = 0; break; }
-        fault_set_threshold(bit, mn, mx);
+        if (upd_n < (uint8_t)(sizeof(upd) / sizeof(upd[0]))) {
+            upd[upd_n].idx = bit;
+            upd[upd_n].mn  = mn;
+            upd[upd_n].mx  = mx;
+            upd_n++;
+        } else {
+            ok = 0;
+            break;
+        }
     }
 
     /* Bits 8-12: current thresholds (single max value, 2 bytes each) */
@@ -346,7 +365,27 @@ static void handle_set_thresholds(void)
             uint16_t mx = (uint16_t)p_pkt.data[idx] | ((uint16_t)p_pkt.data[idx+1] << 8);
             idx += 2;
             if (mx == 0U || mx > (uint16_t)INT16_MAX) { ok = 0; break; }
-            fault_set_threshold(bit - 8 + 4, 0, mx);
+            if (upd_n < (uint8_t)(sizeof(upd) / sizeof(upd[0]))) {
+                upd[upd_n].idx = (uint8_t)(bit - 8 + 4);
+                upd[upd_n].mn  = 0;
+                upd[upd_n].mx  = mx;
+                upd_n++;
+            } else {
+                ok = 0;
+                break;
+            }
+        }
+    }
+
+    /* Strict length match: payload must contain exactly the expected fields
+     * for the provided mask (no truncation, no extra bytes). */
+    if (ok && (idx != p_pkt.len)) {
+        ok = 0;
+    }
+
+    if (ok) {
+        for (uint8_t i = 0; i < upd_n; i++) {
+            fault_set_threshold(upd[i].idx, upd[i].mn, upd[i].mx);
         }
     }
 

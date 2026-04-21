@@ -175,6 +175,58 @@ void test_reset_fault_does_not_reenable_domains(void)
     TEST_ASSERT_EQUAL_UINT8(call_count_before, mock_force_off_call_count);
 }
 
+void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(void)
+{
+    /* Two independent fault conditions held simultaneously should latch both bits. */
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[0] = 30000; /* V24 out-of-range */
+    mock_pgood = 0;             /* PGOOD lost */
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++)
+        fault_manager_process();
+
+    uint16_t flags = fault_get_flags();
+    TEST_ASSERT_TRUE(flags & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(flags & FAULT_PGOOD_LOST);
+}
+
+void test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal(void)
+{
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[0] = 30000;
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+
+    mock_power_state = 0;
+    set_v_nominal();
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+
+    fault_clear_flags();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
+
+    /* With all measurements nominal, the fault manager must not turn anything back on. */
+    for (uint8_t i = 0; i < 50; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+}
+
+void test_voltage_threshold_boundaries_at_min_and_max_do_not_fault(void)
+{
+    mock_power_state = DOM_SCALER;
+
+    mock_voltage_mv[0] = THRESH_V24_MIN;
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V24_RANGE);
+
+    mock_voltage_mv[0] = THRESH_V24_MAX;
+    for (uint8_t i = 0; i < 20; i++) fault_manager_process();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V24_RANGE);
+
+    mock_voltage_mv[0] = THRESH_V24_MAX + 1;
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+}
+
 /* ===== Shutdown policy (Rules 7.3) ===== */
 
 void test_fault_scaler_shuts_scaler_lcd_bl(void)
@@ -302,27 +354,30 @@ void test_set_threshold_min_ge_max_makes_range_always_invalid(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
 }
 
-/* ===== Reserved-bit faults don't cascade (Rules 7.3) ===== */
+/* ===== ETH/TOUCH fault policy (Rules 7.3) ===== */
 
-void test_fault_touch_latched_without_shutdown(void)
+void test_fault_touch_latched_with_domain_shutdown(void)
 {
-    /* FAULT_TOUCH is a reserved bit (Rules 7.2): latched, but no domain shutdown. */
+    /* FAULT_TOUCH must be latched and force TOUCH domain shutdown. */
     fault_set_flag(FAULT_TOUCH);
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_TOUCH);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(0, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
+    TEST_ASSERT_EQUAL_HEX16(DOM_TOUCH, mock_force_off_called_with);
 }
 
-void test_fault_eth1_eth2_latched_without_shutdown(void)
+void test_fault_eth1_eth2_latched_with_domain_shutdown(void)
 {
     fault_set_flag(FAULT_ETH1);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
+    TEST_ASSERT_EQUAL_HEX16(DOM_ETH1, mock_force_off_called_with);
+
     fault_set_flag(FAULT_ETH2);
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH1);
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH2);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(0, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(2, mock_force_off_call_count);
+    TEST_ASSERT_EQUAL_HEX16(DOM_ETH2, mock_force_off_called_with);
 }
 
 /* ===== Current threshold boundary (strict `>` check) ===== */
@@ -380,6 +435,8 @@ int main(void)
     RUN_TEST(test_fault_is_latched);
     RUN_TEST(test_reset_fault_clears_all_flags);
     RUN_TEST(test_reset_fault_does_not_reenable_domains);
+    RUN_TEST(test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation);
+    RUN_TEST(test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal);
     RUN_TEST(test_fault_scaler_shuts_scaler_lcd_bl);
     RUN_TEST(test_fault_lcd_shuts_lcd_bl);
     RUN_TEST(test_fault_backlight_shuts_bl_only);
@@ -394,10 +451,11 @@ int main(void)
     RUN_TEST(test_set_current_threshold);
     RUN_TEST(test_set_threshold_idx_out_of_range_is_noop);
     RUN_TEST(test_set_threshold_min_ge_max_makes_range_always_invalid);
-    RUN_TEST(test_fault_touch_latched_without_shutdown);
-    RUN_TEST(test_fault_eth1_eth2_latched_without_shutdown);
+    RUN_TEST(test_fault_touch_latched_with_domain_shutdown);
+    RUN_TEST(test_fault_eth1_eth2_latched_with_domain_shutdown);
     RUN_TEST(test_current_at_and_below_threshold_no_fault);
     RUN_TEST(test_voltage_not_checked_when_all_off);
     RUN_TEST(test_current_only_checked_for_active_domain);
+    RUN_TEST(test_voltage_threshold_boundaries_at_min_and_max_do_not_fault);
     return UNITY_END();
 }
