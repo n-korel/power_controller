@@ -12,6 +12,9 @@
 /* RAM-backed flash region. Must exist BEFORE config.h / flash_cal.c are pulled in. */
 static uint8_t flash_cal_buf[128] __attribute__((aligned(4)));
 #define FLASH_CAL_ADDR ((uintptr_t)flash_cal_buf)
+#define FLASH_CAL_VALID_START ((uintptr_t)flash_cal_buf)
+#define FLASH_CAL_VALID_END   ((uintptr_t)flash_cal_buf + sizeof(flash_cal_buf))
+#define FLASH_CAL_ERASE_SIZE  128U
 
 #include "stm32f0xx_hal.h"
 #include "main.h"

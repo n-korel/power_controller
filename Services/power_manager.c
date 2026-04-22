@@ -92,6 +92,7 @@ static uint32_t pwrbtn_timer;
 static uint32_t sus_cooldown_ts;
 
 static void power_auto_startup(void);
+static uint8_t power_effective_state_for_request(void);
 
 /* ===== GPIO helpers ===== */
 static void gpio_domain_set(uint8_t dom, uint8_t on)
@@ -107,6 +108,59 @@ static void gpio_domain_set(uint8_t dom, uint8_t on)
     case DOM_TOUCH:     HAL_GPIO_WritePin(POWER_TOUCH_GPIO_Port,     POWER_TOUCH_Pin,     st); break;
     default: break;
     }
+}
+
+/* Effective state for command validation:
+ * includes the final display state when display sequencing is in flight. */
+static uint8_t power_effective_state_for_request(void)
+{
+    uint8_t state = power_state;
+
+    switch (dseq) {
+    case DSEQ_DN_PWM_ZERO:
+    case DSEQ_DN_WAIT_PWM:
+    case DSEQ_DN_BL_OFF:
+    case DSEQ_DN_WAIT_BL:
+    case DSEQ_DN_LCD_OFF:
+    case DSEQ_DN_WAIT_LCD:
+    case DSEQ_DN_RST_ASSERT:
+    case DSEQ_DN_SCALER_OFF:
+    case DSEQ_DN_DONE:
+        state &= (uint8_t)~(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+        break;
+
+    case DSEQ_BLOFF_PWM_ZERO:
+    case DSEQ_BLOFF_WAIT:
+    case DSEQ_BLOFF_GPIO:
+    case DSEQ_BLOFF_DONE:
+        state &= (uint8_t)~DOM_BACKLIGHT;
+        break;
+
+    case DSEQ_UP_SCALER_ON:
+    case DSEQ_UP_WAIT_SCALER:
+    case DSEQ_UP_VERIFY_SCALER:
+    case DSEQ_UP_RST_RELEASE:
+    case DSEQ_UP_WAIT_RST:
+    case DSEQ_UP_LCD_ON:
+    case DSEQ_UP_WAIT_LCD:
+    case DSEQ_UP_VERIFY_LCD:
+    case DSEQ_UP_BL_ON:
+    case DSEQ_UP_VERIFY_BL:
+    case DSEQ_UP_DONE:
+        state |= (uint8_t)(DOM_SCALER | DOM_LCD);
+        if (dseq_up_with_bl) {
+            state |= DOM_BACKLIGHT;
+        } else {
+            state &= (uint8_t)~DOM_BACKLIGHT;
+        }
+        break;
+
+    case DSEQ_IDLE:
+    default:
+        break;
+    }
+
+    return state;
 }
 
 /* ===== Init ===== */
@@ -529,8 +583,10 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         return 1;
     }
 
-    /* Compute desired future state for validation */
-    uint8_t future = (power_state & ~(uint8_t)mask) | (uint8_t)(value & mask);
+    /* Compute desired future state for validation against the effective state
+     * (including pending display sequencing result). */
+    uint8_t req_state = power_effective_state_for_request();
+    uint8_t future = (req_state & ~(uint8_t)mask) | (uint8_t)(value & mask);
     uint8_t disp_mask = mask & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
     uint8_t next_dseq = DSEQ_IDLE;
     uint8_t apply_dseq = 0;
@@ -563,11 +619,11 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
             /* Turning off SCALER or LCD: full shutdown sequencing first */
             next_dseq = DSEQ_DN_PWM_ZERO;
             apply_dseq = 1;
-        } else if (want_bl_off && (power_state & DOM_BACKLIGHT)) {
+        } else if (want_bl_off && (req_state & DOM_BACKLIGHT)) {
             /* BL-only off with 10ms delay (Rules 13.7) */
             next_dseq = DSEQ_BLOFF_PWM_ZERO;
             apply_dseq = 1;
-        } else if ((mask & DOM_SCALER) && (value & DOM_SCALER) && !(power_state & DOM_SCALER)) {
+        } else if ((mask & DOM_SCALER) && (value & DOM_SCALER) && !(req_state & DOM_SCALER)) {
             /* SCALER ON (from OFF): full UP sequencing */
             if (!input_get_pgood())
                 return 1;
@@ -575,7 +631,7 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
             next_dseq = DSEQ_UP_SCALER_ON;
             apply_dseq = 1;
         } else if ((mask & DOM_LCD) && (value & DOM_LCD) &&
-                   (power_state & DOM_SCALER) && !(power_state & DOM_LCD)) {
+                   (req_state & DOM_SCALER) && !(req_state & DOM_LCD)) {
             /* LCD ON when SCALER already ON: partial sequencing (Rules 13.7) */
             if (!input_get_pgood())
                 return 1;
@@ -583,8 +639,8 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
             next_dseq = DSEQ_UP_RST_RELEASE;
             apply_dseq = 1;
         } else if (want_bl_on &&
-                   (power_state & DOM_SCALER) && (power_state & DOM_LCD) &&
-                   !(power_state & DOM_BACKLIGHT)) {
+                   (req_state & DOM_SCALER) && (req_state & DOM_LCD) &&
+                   !(req_state & DOM_BACKLIGHT)) {
             /* BL-only ON when SCALER+LCD already on */
             if (!input_get_pgood())
                 return 1;

@@ -51,10 +51,10 @@ typedef enum {
 
 static parser_state_t p_state;
 static proto_packet_t p_pkt;
+static proto_packet_t p_rx_pkt;
 static uint8_t  p_data_cnt;
 static uint8_t  p_crc_rx;
 static uint32_t p_last_byte_ts;
-static volatile uint8_t p_ready;
 
 /* ===== RX ring buffer (Rules §1.1, invariant 8: keep ISR minimal) =====
  * ISR only pushes one byte here and re-arms HAL_UART_Receive_IT.
@@ -70,6 +70,14 @@ static volatile uint16_t rx_tail;        /* written by main loop only */
 static volatile uint8_t  rx_overflow;    /* set by ISR when ring is full */
 static volatile uint8_t  rx_byte;        /* HAL_UART_Receive_IT target */
 
+/* Parsed packet queue: decouple RX parsing from TX busy time. */
+#define UART_PKT_QUEUE_SIZE  4U
+#define UART_PKT_QUEUE_MASK  (UART_PKT_QUEUE_SIZE - 1U)
+static proto_packet_t pkt_queue[UART_PKT_QUEUE_SIZE];
+static uint8_t pkt_q_head;
+static uint8_t pkt_q_tail;
+static uint8_t pkt_q_count;
+
 /* TX buffer: STX + CMD + LEN + DATA(max64) + CRC + ETX = 69 max */
 static uint8_t  tx_buf[PROTO_MAX_DATA + 5];
 static volatile uint8_t tx_busy_flag;
@@ -78,11 +86,13 @@ static volatile uint8_t tx_busy_flag;
 void uart_protocol_init(void)
 {
     p_state = PS_WAIT_STX;
-    p_ready = 0;
     tx_busy_flag = 0;
     rx_head = 0;
     rx_tail = 0;
     rx_overflow = 0;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
     HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
@@ -106,6 +116,30 @@ void uart_protocol_rx_byte_cb(void)
 }
 
 /* ===== Parser step (main-loop context) ===== */
+static uint8_t packet_queue_push(const proto_packet_t *pkt)
+{
+    if (pkt_q_count >= UART_PKT_QUEUE_SIZE) {
+        return 0;
+    }
+
+    pkt_queue[pkt_q_head] = *pkt;
+    pkt_q_head = (uint8_t)((pkt_q_head + 1U) & UART_PKT_QUEUE_MASK);
+    pkt_q_count++;
+    return 1;
+}
+
+static uint8_t packet_queue_pop(proto_packet_t *pkt)
+{
+    if (pkt_q_count == 0U) {
+        return 0;
+    }
+
+    *pkt = pkt_queue[pkt_q_tail];
+    pkt_q_tail = (uint8_t)((pkt_q_tail + 1U) & UART_PKT_QUEUE_MASK);
+    pkt_q_count--;
+    return 1;
+}
+
 static void parser_feed(uint8_t b)
 {
     uint32_t now = systick_ms;
@@ -139,15 +173,15 @@ static void parser_feed(uint8_t b)
         break;
 
     case PS_READ_CMD:
-        p_pkt.cmd = b;
+        p_rx_pkt.cmd = b;
         p_state   = PS_READ_LEN;
         break;
 
     case PS_READ_LEN:
-        p_pkt.len = b;
-        if (p_pkt.len == 0)
+        p_rx_pkt.len = b;
+        if (p_rx_pkt.len == 0)
             p_state = PS_READ_CRC;
-        else if (p_pkt.len > PROTO_MAX_DATA) {
+        else if (p_rx_pkt.len > PROTO_MAX_DATA) {
             p_state = PS_WAIT_STX;
             p_last_byte_ts = 0;
         } else
@@ -155,8 +189,8 @@ static void parser_feed(uint8_t b)
         break;
 
     case PS_READ_DATA:
-        p_pkt.data[p_data_cnt++] = b;
-        if (p_data_cnt >= p_pkt.len)
+        p_rx_pkt.data[p_data_cnt++] = b;
+        if (p_data_cnt >= p_rx_pkt.len)
             p_state = PS_READ_CRC;
         break;
 
@@ -168,14 +202,14 @@ static void parser_feed(uint8_t b)
     case PS_WAIT_ETX:
         if (b == PROTO_ETX) {
             uint8_t crc_buf[PROTO_MAX_DATA + 2];
-            crc_buf[0] = p_pkt.cmd;
-            crc_buf[1] = p_pkt.len;
-            if (p_pkt.len > 0)
-                memcpy(&crc_buf[2], p_pkt.data, p_pkt.len);
-            uint8_t crc_calc = crc8_calc(crc_buf, (uint8_t)(2 + p_pkt.len));
+            crc_buf[0] = p_rx_pkt.cmd;
+            crc_buf[1] = p_rx_pkt.len;
+            if (p_rx_pkt.len > 0)
+                memcpy(&crc_buf[2], p_rx_pkt.data, p_rx_pkt.len);
+            uint8_t crc_calc = crc8_calc(crc_buf, (uint8_t)(2 + p_rx_pkt.len));
 
             if (crc_calc == p_crc_rx)
-                p_ready = 1;
+                (void)packet_queue_push(&p_rx_pkt);
         }
         p_state = PS_WAIT_STX;
         p_last_byte_ts = 0;
@@ -415,7 +449,7 @@ void uart_protocol_process(void)
         rx_tail = rx_head;
         p_state = PS_WAIT_STX;
         p_last_byte_ts = 0;
-    } else if (!p_ready) {
+    } else {
         while (rx_tail != rx_head) {
             uint8_t b = rx_ring[rx_tail];
             rx_tail = (uint16_t)((rx_tail + 1U) & UART_RX_RING_MASK);
@@ -431,9 +465,9 @@ void uart_protocol_process(void)
         }
     }
 
-    if (!p_ready) return;
+    if (pkt_q_count == 0U) return;
     if (uart_tx_busy()) return;
-    p_ready = 0;
+    if (!packet_queue_pop(&p_pkt)) return;
 
     switch (p_pkt.cmd) {
     case CMD_PING:             handle_ping();             break;

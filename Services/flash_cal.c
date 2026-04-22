@@ -21,9 +21,56 @@ static uint32_t sw_crc32(const uint8_t *data, uint32_t len)
     return ~crc;
 }
 
+static uint8_t flash_cal_addr_valid_for_load(void)
+{
+    uintptr_t start = (uintptr_t)FLASH_CAL_ADDR;
+    uintptr_t end_excl;
+
+#if FLASH_CAL_RUNTIME_ALIGN_CHECK
+    if ((start & 0x3U) != 0U)
+        return 0;
+#endif
+    if (sizeof(flash_cal_t) > ((uintptr_t)-1 - start))
+        return 0;
+
+    end_excl = start + sizeof(flash_cal_t);
+    if (start < (uintptr_t)FLASH_CAL_VALID_START)
+        return 0;
+    if (end_excl > (uintptr_t)FLASH_CAL_VALID_END)
+        return 0;
+
+    return 1;
+}
+
+static uint8_t flash_cal_addr_valid_for_erase(void)
+{
+    uintptr_t start = (uintptr_t)FLASH_CAL_ADDR;
+    uintptr_t end_excl;
+
+    if (FLASH_CAL_ERASE_SIZE == 0U)
+        return 0;
+#if FLASH_CAL_RUNTIME_ALIGN_CHECK
+    if ((start & 0x3U) != 0U)
+        return 0;
+#endif
+    if ((uintptr_t)FLASH_CAL_ERASE_SIZE > ((uintptr_t)-1 - start))
+        return 0;
+
+    end_excl = start + (uintptr_t)FLASH_CAL_ERASE_SIZE;
+    if (start < (uintptr_t)FLASH_CAL_VALID_START)
+        return 0;
+    if (end_excl > (uintptr_t)FLASH_CAL_VALID_END)
+        return 0;
+
+    return 1;
+}
+
 /* ===== Load calibration from Flash at startup ===== */
 void flash_cal_load(void)
 {
+    if (!flash_cal_addr_valid_for_load())
+        return;
+
     const flash_cal_t *cal = (const flash_cal_t *)FLASH_CAL_ADDR;
 
     if (cal->magic != FLASH_CAL_MAGIC || cal->version != FLASH_CAL_VERSION) {
@@ -59,6 +106,9 @@ uint8_t flash_cal_calibrate(void)
 
     uint32_t payload_len = offsetof(flash_cal_t, crc32);
     cal.crc32 = sw_crc32((const uint8_t *)&cal, payload_len);
+
+    if (!flash_cal_addr_valid_for_load() || !flash_cal_addr_valid_for_erase())
+        return 1;
 
     /* Erase page */
     HAL_FLASH_Unlock();

@@ -80,7 +80,20 @@ volatile uint32_t systick_ms;
  * uart_protocol_process(). For parser-state tests we push bytes through
  * the ring and manually drain them into parser_feed(), which matches the
  * first half of uart_protocol_process() but leaves dispatching to the
- * test itself (so p_ready is observable). */
+ * test itself (so parser queue state is observable). */
+
+static uint8_t queued_packet_count(void)
+{
+    return pkt_q_count;
+}
+
+static const proto_packet_t *queued_packet_peek(void)
+{
+    if (pkt_q_count == 0U) {
+        return NULL;
+    }
+    return &pkt_queue[pkt_q_tail];
+}
 
 static void drain_ring_into_parser(void)
 {
@@ -109,7 +122,9 @@ static void feed_bytes(const uint8_t *data, uint16_t len)
 static void parse_bytes_direct(const uint8_t *data, uint16_t len)
 {
     p_state = PS_WAIT_STX;
-    p_ready = 0;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
     p_last_byte_ts = 0;
     p_data_cnt = 0;
     for (uint16_t i = 0; i < len; i++)
@@ -146,7 +161,9 @@ void setUp(void)
     rx_tail = 0;
     rx_overflow = 0;
     p_state = PS_WAIT_STX;
-    p_ready = 0;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
     tx_busy_flag = 0;
     p_last_byte_ts = 0;
     p_data_cnt = 0;
@@ -185,9 +202,11 @@ void test_parser_valid_ping_packet(void)
 
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_PING, p_pkt.cmd);
-    TEST_ASSERT_EQUAL_UINT8(0, p_pkt.len);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_PING, pkt0->cmd);
+    TEST_ASSERT_EQUAL_UINT8(0, pkt0->len);
 }
 
 void test_parser_valid_get_status_request(void)
@@ -197,8 +216,10 @@ void test_parser_valid_get_status_request(void)
 
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_GET_STATUS, p_pkt.cmd);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_GET_STATUS, pkt0->cmd);
 }
 
 void test_parser_valid_power_ctrl(void)
@@ -209,15 +230,19 @@ void test_parser_valid_power_ctrl(void)
 
     /* Direct-feed the parser to isolate from RX ring plumbing. */
     p_state = PS_WAIT_STX;
-    p_ready = 0;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
     p_last_byte_ts = 0;
     for (uint16_t i = 0; i < n; i++)
         parser_feed(pkt[i]);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_POWER_CTRL, p_pkt.cmd);
-    TEST_ASSERT_EQUAL_UINT8(4, p_pkt.len);
-    TEST_ASSERT_EQUAL_MEMORY(data, p_pkt.data, 4);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_POWER_CTRL, pkt0->cmd);
+    TEST_ASSERT_EQUAL_UINT8(4, pkt0->len);
+    TEST_ASSERT_EQUAL_MEMORY(data, pkt0->data, 4);
 }
 
 void test_parser_state_progression_len4_packet(void)
@@ -228,7 +253,9 @@ void test_parser_state_progression_len4_packet(void)
     TEST_ASSERT_EQUAL_UINT16(9, n);
 
     p_state = PS_WAIT_STX;
-    p_ready = 0;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
     p_last_byte_ts = 0;
     p_data_cnt = 0;
 
@@ -238,7 +265,7 @@ void test_parser_state_progression_len4_packet(void)
     TEST_ASSERT_EQUAL_INT(PS_READ_LEN, p_state);
     parser_feed(pkt[2]); /* LEN */
     TEST_ASSERT_EQUAL_INT(PS_READ_DATA, p_state);
-    TEST_ASSERT_EQUAL_UINT8(4, p_pkt.len);
+    TEST_ASSERT_EQUAL_UINT8(4, p_rx_pkt.len);
 
     parser_feed(pkt[3]);
     TEST_ASSERT_EQUAL_INT(PS_READ_DATA, p_state);
@@ -254,7 +281,7 @@ void test_parser_state_progression_len4_packet(void)
     TEST_ASSERT_EQUAL_INT(PS_WAIT_ETX, p_state);
     parser_feed(pkt[8]); /* ETX */
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
 }
 
 void test_parser_zero_length_data(void)
@@ -265,8 +292,10 @@ void test_parser_zero_length_data(void)
 
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_RESET_FAULT, p_pkt.cmd);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_RESET_FAULT, pkt0->cmd);
 }
 
 /* ===== Error handling ===== */
@@ -279,7 +308,7 @@ void test_parser_bad_crc_rejected(void)
 
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(0, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
 }
 
 void test_parser_bad_etx_rejected(void)
@@ -290,7 +319,7 @@ void test_parser_bad_etx_rejected(void)
 
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(0, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
 }
 
 void test_parser_garbage_before_stx_ignored(void)
@@ -302,7 +331,7 @@ void test_parser_garbage_before_stx_ignored(void)
     uint16_t n = build_packet(pkt, CMD_PING, NULL, 0);
     feed_bytes(pkt, n);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
 }
 
 void test_parser_oversized_data_rejected(void)
@@ -311,7 +340,7 @@ void test_parser_oversized_data_rejected(void)
     feed_bytes(prefix, sizeof(prefix));
 
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
-    TEST_ASSERT_EQUAL_UINT8(0, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
 }
 
 void test_parser_interbyte_timeout_resets(void)
@@ -327,7 +356,7 @@ void test_parser_interbyte_timeout_resets(void)
 
     /* Timeout aborted the prior packet; this byte becomes a non-STX → parser stays idle */
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
-    TEST_ASSERT_EQUAL_UINT8(0, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
 }
 
 void test_parser_packet_timeout_resets(void)
@@ -477,8 +506,10 @@ void test_dispatch_set_brightness_valid(void)
     uint16_t n = build_packet(pkt, CMD_SET_BRIGHTNESS, data, 2);
 
     parse_bytes_direct(pkt, n);
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, p_pkt.cmd);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, pkt0->cmd);
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_HEX8(CMD_SET_BRIGHTNESS, tx_buf[1]);
@@ -582,9 +613,11 @@ void test_parser_resync_on_stx_after_bad_packet(void)
 
     feed_bytes(stream, pos);
 
-    TEST_ASSERT_EQUAL_UINT8(1, p_ready);
-    TEST_ASSERT_EQUAL_HEX8(CMD_GET_STATUS, p_pkt.cmd);
-    TEST_ASSERT_EQUAL_UINT8(0, p_pkt.len);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_GET_STATUS, pkt0->cmd);
+    TEST_ASSERT_EQUAL_UINT8(0, pkt0->len);
 }
 
 void test_dispatch_reset_fault_clears_flags_and_returns_ack(void)
@@ -732,7 +765,7 @@ void test_rx_isr_does_not_touch_parser_state(void)
     }
 
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
-    TEST_ASSERT_EQUAL_UINT8(0, p_ready);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
 
     uart_protocol_process();
     TEST_ASSERT_EQUAL_HEX8(CMD_PING, tx_buf[1]);

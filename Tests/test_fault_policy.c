@@ -6,7 +6,7 @@
  *   - RESET_FAULT clears flags but doesn't re-enable anything — Rules 7.1
  *   - 5 consecutive out-of-range measurements to confirm fault — Rules 5.3
  *   - Any in-range measurement resets the consecutive counter — Rules 5.3
- *   - Each fault type maps to specific domain shutdowns — Rules 7.3
+ *   - Any fault must enter full safe state before latching — Rule 42
  */
 #include "unity.h"
 #include "config.h"
@@ -18,6 +18,7 @@ static uint8_t  mock_faultz = 1;
 static uint8_t  mock_power_state;
 static uint16_t mock_force_off_called_with;
 static uint8_t  mock_force_off_call_count;
+static uint8_t  mock_safe_state_call_count;
 
 uint16_t adc_get_voltage_mv(uint8_t idx) { return (idx < 4) ? mock_voltage_mv[idx] : 0; }
 int16_t  adc_get_current_ma(uint8_t idx) { return (idx < 5) ? mock_current_ma[idx] : 0; }
@@ -32,6 +33,14 @@ void power_force_off_domains(uint16_t domain_mask)
 }
 
 void power_emergency_display_off(void) {}
+void power_safe_state(void)
+{
+    /* Emulate Rules_POWER.md invariant 42 in tests: safe state first. */
+    mock_safe_state_call_count++;
+    power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
+                            DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
+    mock_power_state = 0;
+}
 
 volatile uint32_t systick_ms;
 
@@ -53,6 +62,7 @@ void setUp(void)
     fault_manager_init();
     mock_force_off_called_with = 0;
     mock_force_off_call_count  = 0;
+    mock_safe_state_call_count = 0;
     mock_pgood = 1;
     mock_faultz = 1;
     mock_power_state = 0;
@@ -177,7 +187,9 @@ void test_reset_fault_does_not_reenable_domains(void)
 
 void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(void)
 {
-    /* Two independent fault conditions held simultaneously should latch both bits. */
+    /* Invariant 42: first confirmed fault drives full safe state immediately.
+       Therefore in one processing cycle we only require that a fault is latched,
+       not that multiple reasons are aggregated after rails are forced off. */
     mock_power_state   = DOM_SCALER;
     mock_voltage_mv[0] = 30000; /* V24 out-of-range */
     mock_pgood = 0;             /* PGOOD lost */
@@ -187,7 +199,7 @@ void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(v
 
     uint16_t flags = fault_get_flags();
     TEST_ASSERT_TRUE(flags & FAULT_V24_RANGE);
-    TEST_ASSERT_TRUE(flags & FAULT_PGOOD_LOST);
+    TEST_ASSERT_FALSE(flags & FAULT_PGOOD_LOST);
 }
 
 void test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal(void)
@@ -227,67 +239,75 @@ void test_voltage_threshold_boundaries_at_min_and_max_do_not_fault(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
 }
 
-/* ===== Shutdown policy (Rules 7.3) ===== */
+/* ===== Fault -> safe state policy (Rules invariant 42) ===== */
 
-void test_fault_scaler_shuts_scaler_lcd_bl(void)
+void test_fault_scaler_enters_safe_state(void)
 {
     fault_set_flag(FAULT_SCALER);
-    TEST_ASSERT_EQUAL_HEX16(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
-                            mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_lcd_shuts_lcd_bl(void)
+void test_fault_lcd_enters_safe_state(void)
 {
     fault_set_flag(FAULT_LCD);
-    TEST_ASSERT_EQUAL_HEX16(DOM_LCD | DOM_BACKLIGHT, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_backlight_shuts_bl_only(void)
+void test_fault_backlight_enters_safe_state(void)
 {
     fault_set_flag(FAULT_BACKLIGHT);
-    TEST_ASSERT_EQUAL_HEX16(DOM_BACKLIGHT, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_audio_shuts_audio(void)
+void test_fault_audio_enters_safe_state(void)
 {
     fault_set_flag(FAULT_AUDIO);
-    TEST_ASSERT_EQUAL_HEX16(DOM_AUDIO, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_amp_faultz_shuts_audio(void)
+void test_fault_amp_faultz_enters_safe_state(void)
 {
     fault_set_flag(FAULT_AMP_FAULTZ);
-    TEST_ASSERT_EQUAL_HEX16(DOM_AUDIO, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_pgood_shuts_all_domains(void)
+void test_fault_pgood_enters_safe_state(void)
 {
     fault_set_flag(FAULT_PGOOD_LOST);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_v24_range_shuts_all_domains(void)
+void test_fault_v24_range_enters_safe_state(void)
 {
     fault_set_flag(FAULT_V24_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_v12_range_shuts_all_domains(void)
+void test_fault_v12_range_enters_safe_state(void)
 {
     fault_set_flag(FAULT_V12_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_seq_abort_shuts_display(void)
+void test_fault_seq_abort_enters_safe_state(void)
 {
     fault_set_flag(FAULT_SEQ_ABORT);
-    TEST_ASSERT_EQUAL_HEX16(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
-                            mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
-void test_fault_internal_shuts_all(void)
+void test_fault_internal_enters_safe_state(void)
 {
     fault_set_flag(FAULT_INTERNAL);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
@@ -358,26 +378,29 @@ void test_set_threshold_min_ge_max_makes_range_always_invalid(void)
 
 void test_fault_touch_latched_with_domain_shutdown(void)
 {
-    /* FAULT_TOUCH must be latched and force TOUCH domain shutdown. */
+    /* Invariant 42: any fault enters full safe state before latching flags. */
     fault_set_flag(FAULT_TOUCH);
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_TOUCH);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(DOM_TOUCH, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_eth1_eth2_latched_with_domain_shutdown(void)
 {
     fault_set_flag(FAULT_ETH1);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(DOM_ETH1, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 
     fault_set_flag(FAULT_ETH2);
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH1);
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH2);
+    TEST_ASSERT_EQUAL_UINT8(2, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(2, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(DOM_ETH2, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
 }
 
 /* ===== Current threshold boundary (strict `>` check) ===== */
@@ -437,16 +460,16 @@ int main(void)
     RUN_TEST(test_reset_fault_does_not_reenable_domains);
     RUN_TEST(test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation);
     RUN_TEST(test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal);
-    RUN_TEST(test_fault_scaler_shuts_scaler_lcd_bl);
-    RUN_TEST(test_fault_lcd_shuts_lcd_bl);
-    RUN_TEST(test_fault_backlight_shuts_bl_only);
-    RUN_TEST(test_fault_audio_shuts_audio);
-    RUN_TEST(test_fault_amp_faultz_shuts_audio);
-    RUN_TEST(test_fault_pgood_shuts_all_domains);
-    RUN_TEST(test_fault_v24_range_shuts_all_domains);
-    RUN_TEST(test_fault_v12_range_shuts_all_domains);
-    RUN_TEST(test_fault_seq_abort_shuts_display);
-    RUN_TEST(test_fault_internal_shuts_all);
+    RUN_TEST(test_fault_scaler_enters_safe_state);
+    RUN_TEST(test_fault_lcd_enters_safe_state);
+    RUN_TEST(test_fault_backlight_enters_safe_state);
+    RUN_TEST(test_fault_audio_enters_safe_state);
+    RUN_TEST(test_fault_amp_faultz_enters_safe_state);
+    RUN_TEST(test_fault_pgood_enters_safe_state);
+    RUN_TEST(test_fault_v24_range_enters_safe_state);
+    RUN_TEST(test_fault_v12_range_enters_safe_state);
+    RUN_TEST(test_fault_seq_abort_enters_safe_state);
+    RUN_TEST(test_fault_internal_enters_safe_state);
     RUN_TEST(test_set_voltage_threshold);
     RUN_TEST(test_set_current_threshold);
     RUN_TEST(test_set_threshold_idx_out_of_range_is_noop);
