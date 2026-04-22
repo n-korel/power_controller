@@ -226,6 +226,12 @@ void power_safe_state(void)
     aseq           = ASEQ_IDLE;
     sseq           = STARTUP_IDLE;
     amp_active     = 0;
+    bridge_rst_active = 0;
+    sus_low_tracking  = 0;
+    sus_low_since     = 0;
+    pwrbtn_active     = 0;
+    pwrbtn_timer      = 0;
+    sus_cooldown_ts   = 0;
 }
 
 /* ===== Emergency display off (no delays, Rules 6.2) ===== */

@@ -85,6 +85,9 @@ void fault_manager_process(void)
         for (uint8_t i = 0; i < 4; i++) {
             pstate = power_get_state();
             if (!pstate) {
+                for (uint8_t j = i; j < 4; j++) {
+                    v_consec[j] = 0;
+                }
                 break;
             }
             uint16_t val = adc_get_voltage_mv(i);
