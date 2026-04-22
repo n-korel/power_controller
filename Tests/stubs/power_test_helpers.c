@@ -56,6 +56,11 @@ void fault_set_flag(uint16_t flag)
     }
 }
 
+uint16_t fault_get_flags(void)
+{
+    return (uint16_t)fault_flags_set;
+}
+
 /* ===== Test utilities ===== */
 void pth_reset(void)
 {

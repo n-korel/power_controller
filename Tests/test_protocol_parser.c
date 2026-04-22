@@ -164,6 +164,7 @@ void setUp(void)
     pkt_q_head = 0;
     pkt_q_tail = 0;
     pkt_q_count = 0;
+    pkt_q_overflow_nack_pending = 0;
     tx_busy_flag = 0;
     p_last_byte_ts = 0;
     p_data_cnt = 0;
@@ -793,6 +794,57 @@ void test_rx_ring_overflow_sets_flag_and_resets_parser(void)
     TEST_ASSERT_EQUAL_UINT16(rx_head, rx_tail);
 }
 
+void test_packet_queue_overflow_sets_pending_nack(void)
+{
+    proto_packet_t pkt = { .cmd = CMD_PING, .len = 0 };
+
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
+    pkt_q_overflow_nack_pending = 0;
+
+    for (uint8_t i = 0; i < UART_PKT_QUEUE_SIZE; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1, packet_queue_push(&pkt));
+    }
+    TEST_ASSERT_EQUAL_UINT8(UART_PKT_QUEUE_SIZE, pkt_q_count);
+    TEST_ASSERT_EQUAL_UINT8(0, pkt_q_overflow_nack_pending);
+
+    TEST_ASSERT_EQUAL_UINT8(0, packet_queue_push(&pkt));
+    TEST_ASSERT_EQUAL_UINT8(UART_PKT_QUEUE_SIZE, pkt_q_count);
+    TEST_ASSERT_EQUAL_UINT8(1, pkt_q_overflow_nack_pending);
+}
+
+void test_dispatch_sends_nack_after_queue_overflow_when_queue_drained(void)
+{
+    proto_packet_t pkt = { .cmd = CMD_PING, .len = 0 };
+
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
+    pkt_q_overflow_nack_pending = 0;
+    tx_busy_flag = 0;
+    memset(tx_buf, 0, sizeof(tx_buf));
+
+    for (uint8_t i = 0; i < UART_PKT_QUEUE_SIZE; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1, packet_queue_push(&pkt));
+    }
+    TEST_ASSERT_EQUAL_UINT8(0, packet_queue_push(&pkt));
+    TEST_ASSERT_EQUAL_UINT8(1, pkt_q_overflow_nack_pending);
+
+    for (uint8_t i = 0; i < UART_PKT_QUEUE_SIZE; i++) {
+        uart_protocol_process(); /* handles one queued packet (PING) per call */
+        TEST_ASSERT_EQUAL_HEX8(CMD_PING, tx_buf[1]);
+        uart_tx_cplt_cb();
+    }
+
+    memset(tx_buf, 0, sizeof(tx_buf));
+    uart_protocol_process();
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_UINT8(1, tx_buf[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x02, tx_buf[3]);
+    TEST_ASSERT_EQUAL_UINT8(0, pkt_q_overflow_nack_pending);
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -828,6 +880,8 @@ int main(void)
     RUN_TEST(test_ping_response_data_is_single_0xAA_byte);
     RUN_TEST(test_rx_isr_does_not_touch_parser_state);
     RUN_TEST(test_rx_ring_overflow_sets_flag_and_resets_parser);
+    RUN_TEST(test_packet_queue_overflow_sets_pending_nack);
+    RUN_TEST(test_dispatch_sends_nack_after_queue_overflow_when_queue_drained);
     RUN_TEST(test_parser_resync_on_stx_after_bad_packet);
     return UNITY_END();
 }

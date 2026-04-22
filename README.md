@@ -579,6 +579,7 @@ CRC-8/ATM:
 `error_code` (минимум):
 
 - `0x01` = unknown command
+- `0x02` = RX packet queue overflow (команда не принята к обработке)
 
 ### Команды (коды)
 

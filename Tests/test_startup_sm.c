@@ -66,6 +66,18 @@ void test_startup_begin_arms_wait_and_captures_timer(void)
     TEST_ASSERT_EQUAL_UINT32(12345, sseq_timer);
 }
 
+void test_startup_begin_is_blocked_while_fault_is_latched(void)
+{
+    fault_flags_set = FAULT_PGOOD_LOST;
+    sseq = STARTUP_IDLE;
+    sseq_timer = 0;
+
+    power_startup_begin();
+
+    TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
+    TEST_ASSERT_EQUAL_UINT32(0, sseq_timer);
+}
+
 /* ===== PGOOD=HIGH -> auto-startup (Rules §6.5) ===== */
 
 void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
@@ -214,6 +226,7 @@ int main(void)
     RUN_TEST(test_init_leaves_startup_sm_idle);
     RUN_TEST(test_process_without_begin_is_noop);
     RUN_TEST(test_startup_begin_arms_wait_and_captures_timer);
+    RUN_TEST(test_startup_begin_is_blocked_while_fault_is_latched);
     RUN_TEST(test_pgood_high_triggers_auto_startup_and_returns_idle);
     RUN_TEST(test_pgood_high_full_up_completes_without_backlight);
     RUN_TEST(test_pgood_low_below_timeout_stays_waiting);

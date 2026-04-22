@@ -181,6 +181,14 @@ void power_manager_init(void)
 
 void power_startup_begin(void)
 {
+    /* Rules_POWER.md:
+     * - invariant 21: RESET_FAULT clears flags explicitly,
+     * - invariant 22: latched faults are not auto-cleared.
+     * Do not re-arm startup wait until faults are cleared by host. */
+    if (fault_get_flags() != 0U) {
+        return;
+    }
+
     sseq       = STARTUP_WAIT_PGOOD;
     sseq_timer = systick_ms;
 }
@@ -276,7 +284,7 @@ static void dseq_process(void)
         if (vin_mv >= SEQ_VERIFY_SCALER_MV) {
             dseq = DSEQ_UP_RST_RELEASE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            fault_set_flag(FAULT_SEQ_ABORT);
+            fault_set_flag(FAULT_SEQ_ABORT | FAULT_SCALER);
         }
         break;
     }
@@ -314,7 +322,7 @@ static void dseq_process(void)
             else
                 dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            fault_set_flag(FAULT_SEQ_ABORT);
+            fault_set_flag(FAULT_SEQ_ABORT | FAULT_LCD);
         }
         break;
     }
@@ -336,7 +344,7 @@ static void dseq_process(void)
         if (vin_mv >= SEQ_VERIFY_BL_MV) {
             dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
-            fault_set_flag(FAULT_SEQ_ABORT);
+            fault_set_flag(FAULT_SEQ_ABORT | FAULT_BACKLIGHT);
         }
         break;
     }
@@ -741,8 +749,11 @@ static void sseq_process(void)
         sseq = STARTUP_IDLE;
         power_auto_startup();
     } else if ((systick_ms - sseq_timer) >= PGOOD_TIMEOUT_MS) {
-        sseq = STARTUP_IDLE;
         fault_set_flag(FAULT_PGOOD_LOST);
+        /* fault_set_flag() -> apply_fault_policy() -> power_safe_state()
+         * should own startup SM reset. Keep fallback for test/mocks that do
+         * not model full fault policy side effects. */
+        sseq = STARTUP_IDLE;
     }
 }
 

@@ -77,6 +77,7 @@ static proto_packet_t pkt_queue[UART_PKT_QUEUE_SIZE];
 static uint8_t pkt_q_head;
 static uint8_t pkt_q_tail;
 static uint8_t pkt_q_count;
+static uint8_t pkt_q_overflow_nack_pending;
 
 /* TX buffer: STX + CMD + LEN + DATA(max64) + CRC + ETX = 69 max */
 static uint8_t  tx_buf[PROTO_MAX_DATA + 5];
@@ -93,6 +94,7 @@ void uart_protocol_init(void)
     pkt_q_head = 0;
     pkt_q_tail = 0;
     pkt_q_count = 0;
+    pkt_q_overflow_nack_pending = 0;
     HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
 }
 
@@ -119,6 +121,7 @@ void uart_protocol_rx_byte_cb(void)
 static uint8_t packet_queue_push(const proto_packet_t *pkt)
 {
     if (pkt_q_count >= UART_PKT_QUEUE_SIZE) {
+        pkt_q_overflow_nack_pending = 1U;
         return 0;
     }
 
@@ -465,8 +468,14 @@ void uart_protocol_process(void)
         }
     }
 
-    if (pkt_q_count == 0U) return;
     if (uart_tx_busy()) return;
+    if ((pkt_q_count == 0U) && (pkt_q_overflow_nack_pending != 0U)) {
+        uint8_t ec = 0x02;
+        tx_send(CMD_NACK, &ec, 1);
+        pkt_q_overflow_nack_pending = 0U;
+        return;
+    }
+    if (pkt_q_count == 0U) return;
     if (!packet_queue_pop(&p_pkt)) return;
 
     switch (p_pkt.cmd) {

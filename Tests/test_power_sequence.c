@@ -112,6 +112,7 @@ void test_up_sequence_scaler_verify_timeout_triggers_seq_abort(void)
     tick_ms(SEQ_DELAY_SCALER_ON + SEQ_VERIFY_TIMEOUT + 20);
 
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SCALER);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
 
@@ -132,6 +133,7 @@ void test_up_sequence_lcd_verify_timeout_triggers_seq_abort(void)
             SEQ_DELAY_LCD_ON + SEQ_VERIFY_TIMEOUT + 20);
 
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_LCD);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
 }
@@ -149,6 +151,7 @@ void test_up_sequence_bl_verify_timeout_triggers_seq_abort(void)
             SEQ_DELAY_LCD_ON + SEQ_VERIFY_TIMEOUT + 20);
 
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_BACKLIGHT);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
     TEST_ASSERT_EQUAL_UINT32(0, htim17.Instance_data.CCR1);
@@ -267,6 +270,7 @@ void test_verify_timeout_boundaries_scaler_stage(void)
     /* ==timeout: abort must latch */
     tick_ms(1);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SCALER);
 }
 
 void test_verify_timeout_boundaries_lcd_stage(void)
@@ -286,6 +290,7 @@ void test_verify_timeout_boundaries_lcd_stage(void)
 
     tick_ms(1);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_LCD);
 }
 
 void test_verify_timeout_boundaries_bl_stage(void)
@@ -306,6 +311,7 @@ void test_verify_timeout_boundaries_bl_stage(void)
 
     tick_ms(1);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_BACKLIGHT);
 }
 
 /* ===== DOWN sequence (Rules §13.7) ===== */

@@ -83,6 +83,10 @@ void fault_manager_process(void)
             FAULT_V24_RANGE, FAULT_V12_RANGE, FAULT_V5_RANGE, FAULT_V3V3_RANGE
         };
         for (uint8_t i = 0; i < 4; i++) {
+            pstate = power_get_state();
+            if (!pstate) {
+                break;
+            }
             uint16_t val = adc_get_voltage_mv(i);
             if (val < v_thresh_min[i] || val > v_thresh_max[i]) {
                 v_consec[i]++;
