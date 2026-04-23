@@ -101,7 +101,7 @@ void test_app_step_runtime_order_matches_contract(void)
     }
 }
 
-void test_fault_short_circuits_after_fault_manager(void)
+void test_fault_does_not_block_bootloader_process(void)
 {
     injected_fault_flags = 0x0001U;
 
@@ -112,7 +112,8 @@ void test_fault_short_circuits_after_fault_manager(void)
         CALL_ADC_PROCESS,
         CALL_INPUT_PROCESS,
         CALL_POWER_PROCESS,
-        CALL_FAULT_PROCESS
+        CALL_FAULT_PROCESS,
+        CALL_BOOTLOADER_PROCESS
     };
     assert_app_order(exp, (uint32_t)(sizeof(exp) / sizeof(exp[0])));
 }
@@ -122,7 +123,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_app_step_runtime_order_matches_contract);
-    RUN_TEST(test_fault_short_circuits_after_fault_manager);
+    RUN_TEST(test_fault_does_not_block_bootloader_process);
     return UNITY_END();
 }
 

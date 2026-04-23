@@ -172,14 +172,14 @@ void test_display_cmd_rejected_when_sequencer_busy(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_WAIT_SCALER, dseq);
 }
 
-void test_audio_cmd_noop_when_aseq_busy(void)
+void test_audio_cmd_rejected_when_aseq_busy(void)
 {
     aseq = ASEQ_ON_POWER;
     power_state = 0;
 
     uint8_t r = power_ctrl_request(DOM_AUDIO, DOM_AUDIO);
 
-    TEST_ASSERT_EQUAL_UINT8(0, r);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(ASEQ_ON_POWER, aseq);
 }
 
@@ -369,7 +369,7 @@ int main(void)
     RUN_TEST(test_lcd_on_rejected_without_scaler);
     RUN_TEST(test_lcd_on_accepted_with_scaler);
     RUN_TEST(test_display_cmd_rejected_when_sequencer_busy);
-    RUN_TEST(test_audio_cmd_noop_when_aseq_busy);
+    RUN_TEST(test_audio_cmd_rejected_when_aseq_busy);
     RUN_TEST(test_eth1_on_direct);
     RUN_TEST(test_eth2_off_direct);
     RUN_TEST(test_touch_on_direct);

@@ -663,6 +663,13 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         }
     }
 
+    /* Audio precheck: while audio sequencer is busy, AUDIO=ON cannot be
+     * accepted as completed immediately. Reject with status=1 so host does
+     * not treat the request as done while ASEQ is still in flight. */
+    if ((mask & DOM_AUDIO) && (value & DOM_AUDIO) && (aseq != ASEQ_IDLE)) {
+        return 1;
+    }
+
     /* Simple domains (ETH1, ETH2, TOUCH) — direct control */
     static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
     for (uint8_t i = 0; i < 3; i++) {

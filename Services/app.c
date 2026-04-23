@@ -49,10 +49,10 @@ void app_step(void)
     input_service_process();
     power_manager_process();
     fault_manager_process();
+    bootloader_process();
+
     if (fault_get_flags() != 0U) {
         return;
     }
-
-    bootloader_process();
 }
 

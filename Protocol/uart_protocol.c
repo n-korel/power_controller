@@ -158,16 +158,6 @@ static void parser_feed(uint8_t b)
     }
     p_last_byte_ts = now;
 
-    /* README §9 / Rules invariant #12: STX may re-sync only when ETX is
-     * expected but a new STX arrives instead. During DATA/CRC phases byte
-     * value 0x02 is valid payload and must not reset parser state. */
-    if ((b == PROTO_STX) &&
-        (p_state == PS_WAIT_ETX)) {
-        p_state    = PS_READ_CMD;
-        p_data_cnt = 0;
-        return;
-    }
-
     switch (p_state) {
     case PS_WAIT_STX:
         if (b == PROTO_STX) {
