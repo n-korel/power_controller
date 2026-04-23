@@ -95,7 +95,9 @@ void uart_protocol_init(void)
     pkt_q_tail = 0;
     pkt_q_count = 0;
     pkt_q_overflow_nack_pending = 0;
-    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
+    if (HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1) != HAL_OK) {
+        Error_Handler();
+    }
 }
 
 /* ===== RX byte callback (from ISR) =====
@@ -114,7 +116,9 @@ void uart_protocol_rx_byte_cb(void)
         rx_head = next;
     }
 
-    HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1);
+    if (HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1) != HAL_OK) {
+        Error_Handler();
+    }
 }
 
 /* ===== Parser step (main-loop context) ===== */
@@ -154,14 +158,11 @@ static void parser_feed(uint8_t b)
     }
     p_last_byte_ts = now;
 
-    /* README §9 / Rules invariant #12: STX always starts a new packet.
-     * Re-sync from an in-flight packet on STX to recover after corruption.
-     *
-     * IMPORTANT: do NOT treat STX as a re-sync trigger while we are reading
-     * the CMD byte itself, because command codes are allowed to equal 0x02
-     * (e.g. CMD_POWER_CTRL = 0x02). */
+    /* README §9 / Rules invariant #12: STX may re-sync only when ETX is
+     * expected but a new STX arrives instead. During DATA/CRC phases byte
+     * value 0x02 is valid payload and must not reset parser state. */
     if ((b == PROTO_STX) &&
-        (p_state == PS_READ_DATA || p_state == PS_READ_CRC || p_state == PS_WAIT_ETX)) {
+        (p_state == PS_WAIT_ETX)) {
         p_state    = PS_READ_CMD;
         p_data_cnt = 0;
         return;
@@ -243,6 +244,7 @@ static void tx_send(uint8_t cmd, const uint8_t *data, uint8_t len)
     tx_busy_flag = 1;
     if (HAL_UART_Transmit_IT(&huart1, tx_buf, pos) != HAL_OK) {
         tx_busy_flag = 0;
+        Error_Handler();
     }
 }
 

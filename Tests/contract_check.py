@@ -223,6 +223,67 @@ def assert_eq(label: str, a, b) -> None:
     if a != b:
         die(f"{label}: expected {b!r}, got {a!r}")
 
+def extract_c_block_after(text: str, anchor_re: str, label: str) -> str:
+    """
+    Extracts a C block body for a function-like construct.
+    - Finds anchor regex
+    - Finds the first '{' after it
+    - Returns the substring inside the matching outermost braces.
+    """
+    m = re.search(anchor_re, text, re.M)
+    if not m:
+        die(f"{label}: cannot locate anchor")
+    i = text.find("{", m.end())
+    if i < 0:
+        die(f"{label}: cannot locate opening '{{'")
+    depth = 0
+    start = i + 1
+    for j in range(i, len(text)):
+        c = text[j]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:j]
+    die(f"{label}: cannot locate matching '}}'")
+    return ""
+
+def strip_c_comments(text: str) -> str:
+    # Remove /* ... */ and // ... comments for simple token checks.
+    text = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    text = re.sub(r"//.*?$", "", text, flags=re.M)
+    return text
+
+def extract_while1_body(main_c: str) -> str:
+    m = re.search(r"while\s*\(\s*1\s*\)\s*\{(?P<body>[\s\S]*?)\n\s*\}", main_c)
+    if not m:
+        die("main.c: cannot locate while(1){...} block")
+    return m.group("body")
+
+def list_call_statements(block: str) -> list[str]:
+    """
+    Extracts top-level-ish call statements from a block:
+    - strips comments
+    - collapses whitespace
+    - returns a list of "NAME(" for every statement that looks like a function call ended by ';'
+    This is intentionally strict and used only for the main while(1) contract.
+    """
+    t = strip_c_comments(block)
+    t = re.sub(r"\s+", " ", t).strip()
+    out: list[str] = []
+    for stmt in t.split(";"):
+        s = stmt.strip()
+        if not s:
+            continue
+        # Ignore braces-only fragments
+        if s in ("{", "}", "}{"):
+            continue
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\(", s)
+        if m:
+            out.append(m.group(1) + "(")
+    return out
+
 
 def main() -> int:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -230,11 +291,34 @@ def main() -> int:
     proto_yaml_path = os.path.join(repo_root, "contract", "protocol.yaml")
     config_h_path = os.path.join(repo_root, "Config", "config.h")
     main_c_path = os.path.join(repo_root, "Core", "Src", "main.c")
+    app_c_path = os.path.join(repo_root, "Services", "app.c")
 
     adc_yaml = read_text(adc_yaml_path)
     proto_yaml = read_text(proto_yaml_path)
     config_h = read_text(config_h_path)
     main_c = read_text(main_c_path)
+    app_c = read_text(app_c_path)
+
+    # No-float contract (Rules_POWER.md invariant #9)
+    # Disallow float/double usage in application logic paths (Cortex-M0).
+    # Exclude Drivers/ and test code; this script checks firmware sources only.
+    no_float_dirs = [
+        os.path.join(repo_root, "Core"),
+        os.path.join(repo_root, "Services"),
+        os.path.join(repo_root, "Protocol"),
+        os.path.join(repo_root, "Config"),
+    ]
+    float_pat = re.compile(r"\b(float|double)\b")
+    for d in no_float_dirs:
+        for root, _, files in os.walk(d):
+            for name in files:
+                if not (name.endswith(".c") or name.endswith(".h")):
+                    continue
+                p = os.path.join(root, name)
+                t = read_text(p)
+                t_nc = strip_c_comments(t)
+                if float_pat.search(t_nc):
+                    die(f"float/double is forbidden (Rules_POWER.md #9): {os.path.relpath(p, repo_root)}")
 
     defs = parse_config_h_defines(config_h)
     adc_enum = parse_config_h_adc_enum(config_h)
@@ -350,11 +434,159 @@ def main() -> int:
     if iwdg_hits != ["Core/Src/main.c"]:
         die(f"IWDG refresh must appear only in Core/Src/main.c, found: {iwdg_hits}")
 
+    # UART TX error handling contract:
+    # HAL_UART_Transmit_IT errors must be escalated to Error_Handler (main-loop context)
+    uart_c_path = os.path.join(repo_root, "Protocol", "uart_protocol.c")
+    uart_c = read_text(uart_c_path)
+    if not re.search(
+        r"HAL_UART_Transmit_IT\s*\([^;]*\)\s*!=\s*HAL_OK\s*\)\s*\{[\s\S]*?Error_Handler\s*\(\s*\)\s*;",
+        uart_c,
+        re.M,
+    ):
+        die("uart_protocol.c: HAL_UART_Transmit_IT error path must call Error_Handler()")
+
     # And it must be in the main loop (not in init)
     if "while (1)" not in main_c or "HAL_IWDG_Refresh(" not in main_c:
         die("main.c: missing while(1) loop or HAL_IWDG_Refresh")
     if main_c.find("HAL_IWDG_Refresh(") < main_c.find("while (1)"):
         die("main.c: HAL_IWDG_Refresh must be inside main while(1) loop")
+
+    # Main-loop call order (Rules invariant #49; POWER_Controller.md §0.2):
+    # uart -> adc -> input -> power -> fault -> bootloader -> iwdg refresh
+    #
+    # We enforce this by extracting the first while(1) block and checking the
+    # relative positions of the call tokens within that block.
+    body = extract_while1_body(main_c)
+
+    def must_appear_once_in(block: str, token: str, label: str) -> int:
+        n = block.count(token)
+        if n != 1:
+            die(f"{label}: expected exactly one {token}, got {n}")
+        return block.find(token)
+
+    # main loop must contain exactly one IWDG refresh, and it must be after the step.
+    p_iwdg = must_appear_once_in(body, "HAL_IWDG_Refresh(", "main.c while(1)")
+
+    if "app_step();" in body:
+        p_step = must_appear_once_in(body, "app_step();", "main.c while(1)")
+        if not (p_step < p_iwdg):
+            die("main.c while(1): app_step() must occur before HAL_IWDG_Refresh")
+
+        # Rules_POWER.md #48: refresh only once per iteration in a single place.
+        # Extra calls between app_step and refresh are forbidden: enforce exact while-body calls.
+        calls = list_call_statements(body)
+        if calls != ["app_step(", "HAL_IWDG_Refresh("]:
+            die(f"main.c while(1): expected exactly 'app_step(); HAL_IWDG_Refresh(...);' and nothing else, got calls={calls}")
+
+        # Enforce order inside Services/app.c: app_step must call the services in order.
+        step_body = extract_c_block_after(
+            app_c,
+            r"^\s*void\s+app_step\s*\(\s*void\s*\)\s*$",
+            "app.c app_step"
+        )
+
+        p_uart = must_appear_once_in(step_body, "uart_protocol_process();", "app_step")
+        p_adc  = must_appear_once_in(step_body, "adc_service_process();", "app_step")
+        p_inp  = must_appear_once_in(step_body, "input_service_process();", "app_step")
+        p_pwr  = must_appear_once_in(step_body, "power_manager_process();", "app_step")
+        p_flt  = must_appear_once_in(step_body, "fault_manager_process();", "app_step")
+        p_btl  = must_appear_once_in(step_body, "bootloader_process();", "app_step")
+
+        if not (p_uart < p_adc < p_inp < p_pwr < p_flt < p_btl):
+            die("app_step: call order must be uart->adc->input->power->fault->bootloader")
+    else:
+        p_uart = must_appear_once_in(body, "uart_protocol_process();", "main.c while(1)")
+        p_adc  = must_appear_once_in(body, "adc_service_process();", "main.c while(1)")
+        p_inp  = must_appear_once_in(body, "input_service_process();", "main.c while(1)")
+        p_pwr  = must_appear_once_in(body, "power_manager_process();", "main.c while(1)")
+        p_flt  = must_appear_once_in(body, "fault_manager_process();", "main.c while(1)")
+        p_btl  = must_appear_once_in(body, "bootloader_process();", "main.c while(1)")
+
+        if not (p_uart < p_adc < p_inp < p_pwr < p_flt < p_btl < p_iwdg):
+            die("main.c while(1): call order must be uart->adc->input->power->fault->bootloader->iwdg")
+
+    # ADC DMA start contract (Rules invariant #30-#33):
+    # must start DMA with ADC_CHANNEL_COUNT and adc_get_dma_buf()
+    # Also enforce that DMA is started in init-phase only (never in while/app_step/process).
+    adc_dma_hits: list[tuple[str, str]] = []
+    for d in scan_dirs:
+        for name in os.listdir(d):
+            if not name.endswith(".c"):
+                continue
+            p = os.path.join(d, name)
+            t = read_text(p)
+            for m in re.finditer(r"HAL_ADC_Start_DMA\s*\((.*?)\)\s*;", t, re.S):
+                adc_dma_hits.append((os.path.relpath(p, repo_root), m.group(1)))
+
+    if len(adc_dma_hits) != 1:
+        die(f"expected exactly one HAL_ADC_Start_DMA(...) call in firmware sources, got {len(adc_dma_hits)}: {[h[0] for h in adc_dma_hits]}")
+
+    adc_path, adc_args = adc_dma_hits[0]
+    if "adc_get_dma_buf()" not in adc_args:
+        die("HAL_ADC_Start_DMA must pass adc_get_dma_buf() as buffer")
+    if "ADC_CHANNEL_COUNT" not in adc_args:
+        die("HAL_ADC_Start_DMA must use ADC_CHANNEL_COUNT as length")
+
+    # Must not appear in main loop body or app_step (init-phase only).
+    if "HAL_ADC_Start_DMA(" in body:
+        die("main.c while(1): HAL_ADC_Start_DMA is forbidden (init-phase only)")
+    step_body_for_adc = extract_c_block_after(
+        app_c,
+        r"^\s*void\s+app_step\s*\(\s*void\s*\)\s*$",
+        "app.c app_step"
+    )
+    if "HAL_ADC_Start_DMA(" in step_body_for_adc:
+        die("app_step: HAL_ADC_Start_DMA is forbidden (init-phase only)")
+
+    # ADC init order contract: calibration must happen before DMA start.
+    # Enforce inside app_init() when present; else in main.c USER init block.
+    if re.search(r"^\s*void\s+app_init\s*\(\s*void\s*\)\s*$", app_c, re.M):
+        init_body = extract_c_block_after(
+            app_c,
+            r"^\s*void\s+app_init\s*\(\s*void\s*\)\s*$",
+            "app.c app_init"
+        )
+        p_cal = init_body.find("HAL_ADCEx_Calibration_Start(")
+        p_dma = init_body.find("HAL_ADC_Start_DMA(")
+        if p_cal < 0 or p_dma < 0:
+            die("app_init: must call HAL_ADCEx_Calibration_Start and HAL_ADC_Start_DMA")
+        if p_dma < p_cal:
+            die("app_init: HAL_ADC_Start_DMA must happen after HAL_ADCEx_Calibration_Start")
+    else:
+        p_cal = main_c.find("HAL_ADCEx_Calibration_Start(")
+        p_dma = main_c.find("HAL_ADC_Start_DMA(")
+        if p_cal < 0 or p_dma < 0:
+            die("main.c: must call HAL_ADCEx_Calibration_Start and HAL_ADC_Start_DMA")
+        if p_dma < p_cal:
+            die("main.c: HAL_ADC_Start_DMA must happen after HAL_ADCEx_Calibration_Start")
+
+    # Init HAL status checks (coding standard: always check HAL_StatusTypeDef).
+    # For critical init calls we require explicit "!= HAL_OK" guard to Error_Handler().
+    def require_hal_ok_guard(fn_name: str) -> None:
+        # Find "if (FN(...) != HAL_OK)" and ensure Error_Handler() appears shortly after it.
+        m = re.search(rf"if\s*\(\s*{re.escape(fn_name)}\s*\([^;]*?\)\s*!=\s*HAL_OK\s*\)", main_c, re.S)
+        if not m:
+            die(f"main.c: missing 'if ({fn_name}(...) != HAL_OK)' guard")
+        # Look ahead a small window for Error_Handler(); (handles both brace and no-brace styles)
+        tail = main_c[m.end() : m.end() + 400]
+        if "Error_Handler();" not in tail:
+            die(f"main.c: {fn_name}() guard must call Error_Handler() on failure")
+
+    # For app.c refactor, accept HAL_OK guards in either main.c or app.c.
+    def require_hal_ok_guard_any(fn_name: str) -> None:
+        for label, text in (("main.c", main_c), ("app.c", app_c)):
+            m = re.search(rf"if\s*\(\s*{re.escape(fn_name)}\s*\([^;]*?\)\s*!=\s*HAL_OK\s*\)", text, re.S)
+            if not m:
+                continue
+            tail = text[m.end() : m.end() + 400]
+            if ("fault_set_flag(FAULT_INTERNAL)" not in tail) and ("Error_Handler();" not in tail):
+                die(f"{label}: {fn_name}() guard must route to fault_set_flag(FAULT_INTERNAL) or Error_Handler()")
+            return
+        die(f"missing 'if ({fn_name}(...) != HAL_OK)' guard (main.c or app.c)")
+
+    require_hal_ok_guard_any("HAL_ADCEx_Calibration_Start")
+    require_hal_ok_guard_any("HAL_ADC_Start_DMA")
+    require_hal_ok_guard_any("HAL_TIM_PWM_Start")
 
     print("contract_check: OK")
     return 0

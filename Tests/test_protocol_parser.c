@@ -6,6 +6,7 @@
  */
 #include "unity.h"
 #include "config.h"
+#include "stm32f0xx_hal.h"
 #include <string.h>
 
 /* --- Mocks for uart_protocol.c dependencies --- */
@@ -153,8 +154,20 @@ static uint16_t build_packet(uint8_t *out, uint8_t cmd, const uint8_t *data, uin
     return pos;
 }
 
+static uint32_t hal_count_calls(hal_call_id_t id)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < hal_call_log_count; i++) {
+        if (hal_call_log[i].id == id) {
+            n++;
+        }
+    }
+    return n;
+}
+
 void setUp(void)
 {
+    hal_stub_reset();
     uart_protocol_init();
     /* uart_protocol_init() does not touch these internals */
     rx_head = 0;
@@ -208,6 +221,15 @@ void test_parser_valid_ping_packet(void)
     TEST_ASSERT_NOT_NULL(pkt0);
     TEST_ASSERT_EQUAL_HEX8(CMD_PING, pkt0->cmd);
     TEST_ASSERT_EQUAL_UINT8(0, pkt0->len);
+}
+
+void test_hal_uart_init_arms_rx_once(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(1, hal_count_calls(HAL_CALL_UART_RECEIVE_IT));
+    TEST_ASSERT_TRUE(hal_call_log_count >= 1);
+    TEST_ASSERT_EQUAL_INT(HAL_CALL_UART_RECEIVE_IT, hal_call_log[0].id);
+    TEST_ASSERT_EQUAL_PTR(&huart1, (void *)hal_call_log[0].arg0);
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)hal_call_log[0].arg2);
 }
 
 void test_parser_valid_get_status_request(void)
@@ -372,6 +394,18 @@ void test_parser_packet_timeout_resets(void)
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
 }
 
+void test_hal_uart_rx_callback_rearms_receive_every_byte(void)
+{
+    hal_call_log_count = 0;
+
+    rx_byte = 0x11; uart_protocol_rx_byte_cb();
+    rx_byte = 0x22; uart_protocol_rx_byte_cb();
+    rx_byte = 0x33; uart_protocol_rx_byte_cb();
+
+    TEST_ASSERT_EQUAL_UINT32(3, hal_count_calls(HAL_CALL_UART_RECEIVE_IT));
+    TEST_ASSERT_EQUAL_UINT32(0, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
+}
+
 /* ===== Command dispatch ===== */
 
 void test_dispatch_ping_responds_0xAA(void)
@@ -386,6 +420,21 @@ void test_dispatch_ping_responds_0xAA(void)
     TEST_ASSERT_EQUAL_UINT8(1,        tx_buf[2]);
     TEST_ASSERT_EQUAL_HEX8(PING_RESPONSE, tx_buf[3]);
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[5]);
+}
+
+void test_hal_uart_dispatch_ping_calls_single_transmit_with_len6(void)
+{
+    uint8_t pkt[8];
+    uint16_t n = build_packet(pkt, CMD_PING, NULL, 0);
+    hal_call_log_count = 0;
+
+    feed_bytes(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_UINT32(1, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
+    TEST_ASSERT_TRUE(hal_call_log_count >= 1);
+    TEST_ASSERT_EQUAL_INT(HAL_CALL_UART_TRANSMIT_IT, hal_call_log[hal_call_log_count - 1].id);
+    TEST_ASSERT_EQUAL_UINT32(6U, (uint32_t)hal_call_log[hal_call_log_count - 1].arg2);
 }
 
 void test_dispatch_unknown_cmd_nack(void)
@@ -849,6 +898,7 @@ void test_dispatch_sends_nack_after_queue_overflow_when_queue_drained(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_hal_uart_init_arms_rx_once);
     RUN_TEST(test_parser_valid_ping_packet);
     RUN_TEST(test_parser_valid_get_status_request);
     RUN_TEST(test_parser_valid_power_ctrl);
@@ -860,7 +910,9 @@ int main(void)
     RUN_TEST(test_parser_oversized_data_rejected);
     RUN_TEST(test_parser_interbyte_timeout_resets);
     RUN_TEST(test_parser_packet_timeout_resets);
+    RUN_TEST(test_hal_uart_rx_callback_rearms_receive_every_byte);
     RUN_TEST(test_dispatch_ping_responds_0xAA);
+    RUN_TEST(test_hal_uart_dispatch_ping_calls_single_transmit_with_len6);
     RUN_TEST(test_dispatch_unknown_cmd_nack);
     RUN_TEST(test_dispatch_get_status_layout_26_bytes);
     RUN_TEST(test_dispatch_power_ctrl_bad_len_nack);

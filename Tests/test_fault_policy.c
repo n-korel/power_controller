@@ -88,6 +88,41 @@ void test_voltage_fault_after_5_consecutive(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
 }
 
+void test_v5_voltage_fault_after_5_consecutive(void)
+{
+    /* Rules_POWER.md invariants 39-42: windowed confirmation + safe state first + latch */
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V5_RANGE);
+        TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+    }
+    fault_manager_process();
+
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+}
+
+void test_v3v3_voltage_fault_after_5_consecutive(void)
+{
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[3] = THRESH_V3V3_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V3V3_RANGE);
+        TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+    }
+    fault_manager_process();
+
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V3V3_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+}
+
 void test_voltage_fault_reset_by_normal_reading(void)
 {
     mock_power_state   = DOM_SCALER;
@@ -451,6 +486,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_voltage_fault_after_5_consecutive);
+    RUN_TEST(test_v5_voltage_fault_after_5_consecutive);
+    RUN_TEST(test_v3v3_voltage_fault_after_5_consecutive);
     RUN_TEST(test_voltage_fault_reset_by_normal_reading);
     RUN_TEST(test_current_fault_after_5_consecutive);
     RUN_TEST(test_faultz_active_low_confirms_after_5);

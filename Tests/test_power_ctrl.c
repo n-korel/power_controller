@@ -172,7 +172,7 @@ void test_display_cmd_rejected_when_sequencer_busy(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_WAIT_SCALER, dseq);
 }
 
-void test_audio_cmd_rejected_when_aseq_busy(void)
+void test_audio_cmd_noop_when_aseq_busy(void)
 {
     aseq = ASEQ_ON_POWER;
     power_state = 0;
@@ -234,6 +234,53 @@ void test_scaler_on_starts_full_up_sequence(void)
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_SCALER_ON, dseq);
     TEST_ASSERT_EQUAL_UINT8(0, dseq_up_with_bl);
+}
+
+/* ===== PGOOD interlock (Rules_POWER.md invariant 43) ===== */
+
+void test_display_up_rejected_when_pgood_low_scaler_on(void)
+{
+    power_state = 0;
+    dseq = DSEQ_IDLE;
+    hal_stub_reset();
+    mock_pgood = 0;
+
+    uint8_t r = power_ctrl_request(DOM_SCALER, DOM_SCALER);
+
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
+}
+
+void test_display_up_rejected_when_pgood_low_lcd_on_with_scaler_already_on(void)
+{
+    power_state = DOM_SCALER;
+    dseq = DSEQ_IDLE;
+    hal_stub_reset();
+    mock_pgood = 0;
+
+    uint8_t r = power_ctrl_request(DOM_LCD, DOM_LCD);
+
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER, power_state);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
+}
+
+void test_display_up_rejected_when_pgood_low_backlight_on_with_scaler_lcd_on(void)
+{
+    power_state = DOM_SCALER | DOM_LCD;
+    dseq = DSEQ_IDLE;
+    hal_stub_reset();
+    mock_pgood = 0;
+
+    uint8_t r = power_ctrl_request(DOM_BACKLIGHT, DOM_BACKLIGHT);
+
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
 void test_scaler_off_starts_full_down_sequence(void)
@@ -322,11 +369,14 @@ int main(void)
     RUN_TEST(test_lcd_on_rejected_without_scaler);
     RUN_TEST(test_lcd_on_accepted_with_scaler);
     RUN_TEST(test_display_cmd_rejected_when_sequencer_busy);
-    RUN_TEST(test_audio_cmd_rejected_when_aseq_busy);
+    RUN_TEST(test_audio_cmd_noop_when_aseq_busy);
     RUN_TEST(test_eth1_on_direct);
     RUN_TEST(test_eth2_off_direct);
     RUN_TEST(test_touch_on_direct);
     RUN_TEST(test_scaler_on_starts_full_up_sequence);
+    RUN_TEST(test_display_up_rejected_when_pgood_low_scaler_on);
+    RUN_TEST(test_display_up_rejected_when_pgood_low_lcd_on_with_scaler_already_on);
+    RUN_TEST(test_display_up_rejected_when_pgood_low_backlight_on_with_scaler_lcd_on);
     RUN_TEST(test_scaler_off_starts_full_down_sequence);
     RUN_TEST(test_bl_off_starts_bl_only_shutdown);
     RUN_TEST(test_audio_on_starts_audio_sequence);

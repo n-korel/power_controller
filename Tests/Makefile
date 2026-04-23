@@ -7,20 +7,30 @@
 #   make clean    — remove build artifacts
 # ============================================================
 
-CC       = gcc
+CC = gcc
+
+# Make this Makefile runnable from any cwd:
+# - from repo root:   make -f Tests/Makefile
+# - from Tests dir:   make
+THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
+TESTS_DIR     := $(patsubst %/,%,$(dir $(THIS_MAKEFILE)))
+REPO_ROOT     := $(abspath $(TESTS_DIR)/..)
+
 CFLAGS   = -std=c11 -Wall -Wextra -Wpedantic -g -O0 \
            -DUNIT_TEST \
-           -ITests/stubs -I. -IConfig -IServices -IProtocol
+           -I$(TESTS_DIR)/stubs -I$(TESTS_DIR) \
+           -I$(REPO_ROOT) -I$(REPO_ROOT)/Config -I$(REPO_ROOT)/Services -I$(REPO_ROOT)/Protocol \
+           -I$(REPO_ROOT)/Core/Inc
 LDFLAGS  =
 
 # Unity framework
-UNITY_DIR  = Tests/unity
+UNITY_DIR  = $(TESTS_DIR)/unity
 UNITY_SRC  = $(UNITY_DIR)/unity.c
 UNITY_URL  = https://raw.githubusercontent.com/ThrowTheSwitch/Unity/master/src
 
-BUILD_DIR  = Tests/build
-STUBS_SRC  = Tests/stubs/hal_stubs.c
-PTH_SRC    = Tests/stubs/power_test_helpers.c
+BUILD_DIR  = $(TESTS_DIR)/build
+STUBS_SRC  = $(TESTS_DIR)/stubs/hal_stubs.c
+PTH_SRC    = $(TESTS_DIR)/stubs/power_test_helpers.c
 
 # All test executables
 TESTS = test_crc test_adc_conversion test_protocol_parser \
@@ -28,7 +38,8 @@ TESTS = test_crc test_adc_conversion test_protocol_parser \
         test_invariants test_safe_state test_power_sequence \
         test_audio_sequence test_sus_s3 test_bridge_reset \
         test_flash_cal test_bootloader test_brightness \
-        test_startup_sm
+        test_startup_sm test_main_loop_order test_uart_hal_errors \
+        test_app_init_order
 
 TEST_BINS = $(addprefix $(BUILD_DIR)/, $(TESTS))
 
@@ -51,7 +62,7 @@ all: contract_check unity_fetch $(TEST_BINS)
 
 # Machine-readable contract vs code check (YAML vs config.h)
 contract_check:
-	@python3 Tests/contract_check.py
+	@python3 $(TESTS_DIR)/contract_check.py
 
 # Individual test targets
 $(TESTS): %: $(BUILD_DIR)/%
@@ -72,52 +83,61 @@ $(UNITY_SRC):
 
 # ---- Build rules ----
 # Each test is a standalone executable: test source + stubs + unity
-$(BUILD_DIR)/test_crc: Tests/test_crc.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_crc: $(TESTS_DIR)/test_crc.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_adc_conversion: Tests/test_adc_conversion.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_adc_conversion: $(TESTS_DIR)/test_adc_conversion.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_protocol_parser: Tests/test_protocol_parser.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_protocol_parser: $(TESTS_DIR)/test_protocol_parser.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_power_ctrl: Tests/test_power_ctrl.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_power_ctrl: $(TESTS_DIR)/test_power_ctrl.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_fault_policy: Tests/test_fault_policy.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_fault_policy: $(TESTS_DIR)/test_fault_policy.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_input_packing: Tests/test_input_packing.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_input_packing: $(TESTS_DIR)/test_input_packing.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_invariants: Tests/test_invariants.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_invariants: $(TESTS_DIR)/test_invariants.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_safe_state: Tests/test_safe_state.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_safe_state: $(TESTS_DIR)/test_safe_state.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_power_sequence: Tests/test_power_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_power_sequence: $(TESTS_DIR)/test_power_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_audio_sequence: Tests/test_audio_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_audio_sequence: $(TESTS_DIR)/test_audio_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_sus_s3: Tests/test_sus_s3.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_sus_s3: $(TESTS_DIR)/test_sus_s3.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_bridge_reset: Tests/test_bridge_reset.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_bridge_reset: $(TESTS_DIR)/test_bridge_reset.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_flash_cal: Tests/test_flash_cal.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_flash_cal: $(TESTS_DIR)/test_flash_cal.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_bootloader: Tests/test_bootloader.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_bootloader: $(TESTS_DIR)/test_bootloader.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Wno-int-to-pointer-cast -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_brightness: Tests/test_brightness.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_brightness: $(TESTS_DIR)/test_brightness.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
-$(BUILD_DIR)/test_startup_sm: Tests/test_startup_sm.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/test_startup_sm: $(TESTS_DIR)/test_startup_sm.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_main_loop_order: $(TESTS_DIR)/test_main_loop_order.c $(STUBS_SRC) $(REPO_ROOT)/Services/app.c $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_uart_hal_errors: $(TESTS_DIR)/test_uart_hal_errors.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_app_init_order: $(TESTS_DIR)/test_app_init_order.c $(STUBS_SRC) $(REPO_ROOT)/Services/app.c $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 clean:

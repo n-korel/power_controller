@@ -35,6 +35,7 @@
 #include "fault_manager.h"
 #include "flash_cal.h"
 #include "bootloader.h"
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,23 +106,7 @@ int main(void)
   MX_IWDG_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
-  power_safe_state();
-  adc_service_init();
-  input_service_init();
-  power_manager_init();
-  fault_manager_init();
-  flash_cal_load();
-
-  HAL_ADCEx_Calibration_Start(&hadc);
-  HAL_ADC_Start_DMA(&hadc, (uint32_t *)adc_get_dma_buf(), ADC_CHANNEL_COUNT);
-  HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
-
-  uart_protocol_init();
-
-  /* Arm non-blocking PGOOD wait (Rules 6.5 + §12 IWDG invariant):
-   * polled inside power_manager_process() in the main loop, so IWDG refresh
-   * stays in exactly one place. */
-  power_startup_begin();
+  app_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -131,12 +116,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uart_protocol_process();
-    adc_service_process();
-    input_service_process();
-    power_manager_process();
-    fault_manager_process();
-    bootloader_process();
+    app_step();
     HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
@@ -203,6 +183,7 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+  fault_set_flag(FAULT_INTERNAL);
   while (1)
   {
   }

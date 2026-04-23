@@ -10,6 +10,7 @@
  */
 #include "unity.h"
 #include "config.h"
+#include "stm32f0xx_hal.h"
 
 volatile uint32_t systick_ms;
 
@@ -27,6 +28,17 @@ static void settle_debounce(void)
     input_service_process();
     systick_ms += DEBOUNCE_MS + 1;
     input_service_process();
+}
+
+static uint32_t hal_count_calls(hal_call_id_t id)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < hal_call_log_count; i++) {
+        if (hal_call_log[i].id == id) {
+            n++;
+        }
+    }
+    return n;
 }
 
 void setUp(void)
@@ -188,6 +200,36 @@ void test_init_reads_current_pin_state(void)
     TEST_ASSERT_EQUAL_HEX8(0xFF, input_get_packed());
 }
 
+void test_init_reads_each_input_once_in_declared_order(void)
+{
+    hal_call_log_count = 0;
+    input_service_init();
+
+    TEST_ASSERT_EQUAL_UINT32(INPUT_COUNT, hal_count_calls(HAL_CALL_GPIO_READ));
+    TEST_ASSERT_TRUE(hal_call_log_count >= INPUT_COUNT);
+
+    for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+        TEST_ASSERT_EQUAL_INT(HAL_CALL_GPIO_READ, hal_call_log[i].id);
+        TEST_ASSERT_EQUAL_PTR(pins[i].port, (void *)hal_call_log[i].arg0);
+        TEST_ASSERT_EQUAL_UINT16(pins[i].pin, (uint16_t)hal_call_log[i].arg1);
+    }
+}
+
+void test_process_reads_each_input_once_in_declared_order(void)
+{
+    hal_call_log_count = 0;
+    input_service_process();
+
+    TEST_ASSERT_EQUAL_UINT32(INPUT_COUNT, hal_count_calls(HAL_CALL_GPIO_READ));
+    TEST_ASSERT_TRUE(hal_call_log_count >= INPUT_COUNT);
+
+    for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+        TEST_ASSERT_EQUAL_INT(HAL_CALL_GPIO_READ, hal_call_log[i].id);
+        TEST_ASSERT_EQUAL_PTR(pins[i].port, (void *)hal_call_log[i].arg0);
+        TEST_ASSERT_EQUAL_UINT16(pins[i].pin, (uint16_t)hal_call_log[i].arg1);
+    }
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -208,5 +250,7 @@ int main(void)
     RUN_TEST(test_debounce_bounce_resets_timer);
     RUN_TEST(test_debounce_multiple_channels_independent);
     RUN_TEST(test_init_reads_current_pin_state);
+    RUN_TEST(test_init_reads_each_input_once_in_declared_order);
+    RUN_TEST(test_process_reads_each_input_once_in_declared_order);
     return UNITY_END();
 }
