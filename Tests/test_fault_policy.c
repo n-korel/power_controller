@@ -74,6 +74,7 @@ void tearDown(void) {}
 
 /* ===== Consecutive confirmation (Rules 5.3) ===== */
 
+#if (ENABLE_V24_FAULT_CHECK != 0U)
 void test_voltage_fault_after_5_consecutive(void)
 {
     mock_power_state    = DOM_SCALER;
@@ -87,6 +88,20 @@ void test_voltage_fault_after_5_consecutive(void)
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
 }
+#else
+void test_v24_out_of_range_no_fault_when_check_disabled(void)
+{
+    mock_power_state   = DOM_SCALER | DOM_TOUCH;
+    mock_voltage_mv[0] = 0;
+
+    for (uint8_t i = 0; i < 20; i++) {
+        fault_manager_process();
+    }
+
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+}
+#endif
 
 void test_v5_voltage_fault_after_5_consecutive(void)
 {
@@ -123,6 +138,7 @@ void test_v3v3_voltage_fault_after_5_consecutive(void)
     TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
 }
 
+#if (ENABLE_V24_FAULT_CHECK != 0U)
 void test_voltage_fault_reset_by_normal_reading(void)
 {
     mock_power_state   = DOM_SCALER;
@@ -139,6 +155,7 @@ void test_voltage_fault_reset_by_normal_reading(void)
 
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V24_RANGE);
 }
+#endif
 
 void test_current_fault_after_5_consecutive(void)
 {
@@ -187,14 +204,14 @@ void test_pgood_loss_confirms_after_5(void)
 void test_fault_is_latched(void)
 {
     mock_power_state   = DOM_SCALER;
-    mock_voltage_mv[0] = 30000;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
 
     set_v_nominal();
     for (uint8_t i = 0; i < 20; i++) fault_manager_process();
 
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
 }
 
 void test_reset_fault_clears_all_flags(void)
@@ -210,9 +227,9 @@ void test_reset_fault_clears_all_flags(void)
 void test_reset_fault_does_not_reenable_domains(void)
 {
     mock_power_state   = DOM_SCALER;
-    mock_voltage_mv[0] = 30000;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
 
     uint8_t call_count_before = mock_force_off_call_count;
     fault_clear_flags();
@@ -226,28 +243,36 @@ void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(v
        Therefore in one processing cycle we only require that a fault is latched,
        not that multiple reasons are aggregated after rails are forced off. */
     mock_power_state   = DOM_SCALER;
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     mock_voltage_mv[0] = 30000; /* V24 out-of-range */
+#else
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
+#endif
     mock_pgood = 0;             /* PGOOD lost */
 
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++)
         fault_manager_process();
 
     uint16_t flags = fault_get_flags();
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     TEST_ASSERT_TRUE(flags & FAULT_V24_RANGE);
+#else
+    TEST_ASSERT_TRUE(flags & FAULT_V5_RANGE);
+#endif
     TEST_ASSERT_FALSE(flags & FAULT_PGOOD_LOST);
 }
 
 void test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal(void)
 {
     mock_power_state   = DOM_SCALER;
-    mock_voltage_mv[0] = 30000;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
 
     mock_power_state = 0;
     set_v_nominal();
     for (uint8_t i = 0; i < 20; i++) fault_manager_process();
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
 
     fault_clear_flags();
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
@@ -257,6 +282,7 @@ void test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measur
     TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
 }
 
+#if (ENABLE_V24_FAULT_CHECK != 0U)
 void test_voltage_threshold_boundaries_at_min_and_max_do_not_fault(void)
 {
     mock_power_state = DOM_SCALER;
@@ -273,6 +299,7 @@ void test_voltage_threshold_boundaries_at_min_and_max_do_not_fault(void)
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
 }
+#endif
 
 /* ===== Fault -> safe state policy (Rules invariant 42) ===== */
 
@@ -348,6 +375,7 @@ void test_fault_internal_enters_safe_state(void)
 
 /* ===== Threshold update ===== */
 
+#if (ENABLE_V24_FAULT_CHECK != 0U)
 void test_set_voltage_threshold(void)
 {
     fault_set_threshold(0, 19000, 27000);
@@ -362,6 +390,7 @@ void test_set_voltage_threshold(void)
     for (uint8_t i = 0; i < 20; i++) fault_manager_process();
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V24_RANGE);
 }
+#endif
 
 void test_set_current_threshold(void)
 {
@@ -387,13 +416,13 @@ void test_set_threshold_idx_out_of_range_is_noop(void)
     fault_set_threshold(255, 1, 2);
 
     mock_power_state   = DOM_SCALER;
-    mock_voltage_mv[0] = 24000; /* nominal, within default 20000..26000 */
+    mock_voltage_mv[1] = 12000;
     for (uint8_t i = 0; i < 20; i++) fault_manager_process();
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
 
-    mock_voltage_mv[0] = 30000; /* > default max */
+    mock_voltage_mv[1] = 30000; /* V12 > default max */
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
-    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V12_RANGE);
 }
 
 void test_set_threshold_min_ge_max_makes_range_always_invalid(void)
@@ -401,12 +430,19 @@ void test_set_threshold_min_ge_max_makes_range_always_invalid(void)
     /* fault_manager does not validate min<max (that's the protocol layer's job).
        With inverted range (min > max), every reading will be "out of range" and
        confirm a fault after FAULT_CONFIRM_COUNT cycles. */
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     fault_set_threshold(0, 27000, 24000);
-
     mock_power_state   = DOM_SCALER;
-    mock_voltage_mv[0] = 25000; /* would be valid under defaults */
+    mock_voltage_mv[0] = 25000;
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V24_RANGE);
+#else
+    fault_set_threshold(1, 14000, 10000);
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[1] = 12000;
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V12_RANGE);
+#endif
 }
 
 /* ===== ETH/TOUCH fault policy (Rules 7.3) ===== */
@@ -485,10 +521,16 @@ void test_current_only_checked_for_active_domain(void)
 int main(void)
 {
     UNITY_BEGIN();
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     RUN_TEST(test_voltage_fault_after_5_consecutive);
+#else
+    RUN_TEST(test_v24_out_of_range_no_fault_when_check_disabled);
+#endif
     RUN_TEST(test_v5_voltage_fault_after_5_consecutive);
     RUN_TEST(test_v3v3_voltage_fault_after_5_consecutive);
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     RUN_TEST(test_voltage_fault_reset_by_normal_reading);
+#endif
     RUN_TEST(test_current_fault_after_5_consecutive);
     RUN_TEST(test_faultz_active_low_confirms_after_5);
     RUN_TEST(test_pgood_loss_confirms_after_5);
@@ -507,7 +549,9 @@ int main(void)
     RUN_TEST(test_fault_v12_range_enters_safe_state);
     RUN_TEST(test_fault_seq_abort_enters_safe_state);
     RUN_TEST(test_fault_internal_enters_safe_state);
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     RUN_TEST(test_set_voltage_threshold);
+#endif
     RUN_TEST(test_set_current_threshold);
     RUN_TEST(test_set_threshold_idx_out_of_range_is_noop);
     RUN_TEST(test_set_threshold_min_ge_max_makes_range_always_invalid);
@@ -516,6 +560,8 @@ int main(void)
     RUN_TEST(test_current_at_and_below_threshold_no_fault);
     RUN_TEST(test_voltage_not_checked_when_all_off);
     RUN_TEST(test_current_only_checked_for_active_domain);
+#if (ENABLE_V24_FAULT_CHECK != 0U)
     RUN_TEST(test_voltage_threshold_boundaries_at_min_and_max_do_not_fault);
+#endif
     return UNITY_END();
 }

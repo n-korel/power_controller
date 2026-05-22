@@ -56,7 +56,7 @@
 44. Падение `PGOOD` во время секвенса приводит к аварийному выключению дисплея и фиксации fault.
 45. Команда `BOOTLOADER_ENTER (0x08)` перед reset переводит систему в safe state.
 46. `BOOTLOADER_ENTER (0x08)` перед reset отправляет ACK и дожидается завершения передачи UART.
-47. Вход в ROM bootloader выполняется jump на адрес `0x1FFF0000` (STM32F030) при обнаружении SRAM magic.
+47. Вход в ROM bootloader выполняется jump на `ROM_BOOTLOADER_ADDR` из `config.h` при обнаружении SRAM magic (`0x1FFFD800` для APM32F030x8 на плате; `0x1FFFEC00` для STM32F030x8).
 48. При включённом `IWDG` refresh выполняется ровно в одном месте main loop один раз за итерацию.
 49. Refresh `IWDG` выполняется после обработки UART, ADC, state machine и fault-логики.
 50. Refresh `IWDG` запрещён из ISR, HAL callback и низкоуровневых функций периферии.

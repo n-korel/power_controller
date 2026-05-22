@@ -216,9 +216,14 @@ void power_safe_state(void)
     /* RST_CH7511b hold LOW (default before sequencing) */
     HAL_GPIO_WritePin(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin, GPIO_PIN_RESET);
 
-    /* PWM = 0 */
-    /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
-    __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+    /* PWM = 0 (htim17 may be uninitialized if called from Error_Handler during MX_*_Init) */
+#if !defined(UNIT_TEST)
+    if (htim17.Instance != NULL)
+#endif
+    {
+        /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
+        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+    }
 
     power_state    = 0;
     brightness_pwm = 0;
@@ -237,8 +242,13 @@ void power_safe_state(void)
 /* ===== Emergency display off (no delays, Rules 6.2) ===== */
 void power_emergency_display_off(void)
 {
-    /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
-    __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+#if !defined(UNIT_TEST)
+    if (htim17.Instance != NULL)
+#endif
+    {
+        /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
+        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+    }
     HAL_GPIO_WritePin(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LCD_POWER_ON_GPIO_Port, LCD_POWER_ON_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(RST_CH7511B_GPIO_Port,  RST_CH7511B_Pin,  GPIO_PIN_RESET);

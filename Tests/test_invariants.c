@@ -156,7 +156,8 @@ void test_sram_magic_value(void)
 
 void test_rom_bootloader_address(void)
 {
-    TEST_ASSERT_EQUAL_HEX32(0x1FFF0000, ROM_BOOTLOADER_ADDR);
+    TEST_ASSERT_EQUAL_HEX32(0x1FFFD800, ROM_BOOTLOADER_ADDR);
+    TEST_ASSERT_EQUAL_HEX32(0x1FFFF7FF, ROM_BOOTLOADER_END);
 }
 
 /* ===== Flash calibration constants (Rules 11) ===== */
@@ -225,6 +226,11 @@ void test_default_voltage_thresholds(void)
 
     /* Sanity: min < max for every rail. */
     TEST_ASSERT_TRUE(THRESH_V24_MIN  < THRESH_V24_MAX);
+#if (ENABLE_V24_FAULT_CHECK == 0U)
+    TEST_ASSERT_EQUAL_UINT(0U, ENABLE_V24_FAULT_CHECK);
+#else
+    TEST_ASSERT_EQUAL_UINT(1U, ENABLE_V24_FAULT_CHECK);
+#endif
     TEST_ASSERT_TRUE(THRESH_V12_MIN  < THRESH_V12_MAX);
     TEST_ASSERT_TRUE(THRESH_V5_MIN   < THRESH_V5_MAX);
     TEST_ASSERT_TRUE(THRESH_V3V3_MIN < THRESH_V3V3_MAX);

@@ -83,6 +83,12 @@ void fault_manager_process(void)
             FAULT_V24_RANGE, FAULT_V12_RANGE, FAULT_V5_RANGE, FAULT_V3V3_RANGE
         };
         for (uint8_t i = 0; i < 4; i++) {
+#if (ENABLE_V24_FAULT_CHECK == 0U)
+            if (i == 0U) {
+                v_consec[i] = 0;
+                continue;
+            }
+#endif
             pstate = power_get_state();
             if (!pstate) {
                 for (uint8_t j = i; j < 4; j++) {

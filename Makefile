@@ -114,7 +114,7 @@ BIN = $(CP) -O binary -S
 # CFLAGS
 #######################################
 # cpu
-CPU = -mcpu=cortex-m0
+CPU = -mcpu=cortex-m0plus
 
 # fpu
 # NONE for Cortex-M0/M0+/M3
@@ -211,6 +211,16 @@ $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
 	
 $(BUILD_DIR):
 	mkdir $@		
+
+#######################################
+# flash (ST-Link / SWD, st-flash)
+#   make flash-stlink
+#######################################
+ST_FLASH ?= st-flash
+
+.PHONY: flash-stlink
+flash-stlink: $(BUILD_DIR)/$(TARGET).bin
+	$(ST_FLASH) --connect-under-reset write $(BUILD_DIR)/$(TARGET).bin 0x08000000
 
 #######################################
 # clean up
@@ -346,7 +356,7 @@ CLANG_TIDY_FILTER = sed -E \
 # Does not touch CubeMX-generated files or HAL/CMSIS sources.
 CLANG_SA        ?= clang
 CLANG_SA_FLAGS   = --analyze -Xanalyzer -analyzer-output -Xanalyzer text \
-                   --target=arm-none-eabi -mcpu=cortex-m0 -mthumb \
+                   --target=arm-none-eabi -mcpu=cortex-m0plus -mthumb \
                    -std=gnu11 -Wno-unknown-attributes -Wno-unknown-pragmas
 
 # Try to reuse the same include roots as arm-none-eabi-gcc so clang can
@@ -398,6 +408,28 @@ test-clean:
 #   make test_power_sequence
 test_%:
 	$(MAKE) -f Tests/Makefile $@
+
+#######################################
+# BENCH UART TESTS (Tests_UART/)
+# Bare board + USB-UART 3.3 V on UART0 (no Q7 / no display).
+#   make test-uart
+#   make test-uart UART_DEVICE=/dev/ttyACM0
+#   make test-uart-fault   — optional: expected SEQ_ABORT without display
+#######################################
+
+UART_DEVICE ?= /dev/ttyUSB0
+TESTS_UART    = Tests_UART
+
+.PHONY: test-uart test-uart-fault test-uart-reset
+
+test-uart:
+	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/run_all_bare_board.sh
+
+test-uart-fault:
+	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/13_optional_power_ctrl_seq_fault.sh
+
+test-uart-reset:
+	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/03_reset_fault.sh
 
 warnings-check:
 	@echo ">>> [warnings-check] arm-none-eabi-gcc strict warnings on user code"

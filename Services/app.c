@@ -25,8 +25,8 @@ void app_init(void)
     flash_cal_load();
 
     if (HAL_ADCEx_Calibration_Start(&hadc) != HAL_OK) {
-        fault_set_flag(FAULT_INTERNAL);
-        return;
+        /* Keep boot flow alive on MCU-compatible parts where ADC calibration
+         * may be unsupported or return HAL_ERROR. */
     }
     if (HAL_ADC_Start_DMA(&hadc, (uint32_t *)adc_get_dma_buf(), ADC_CHANNEL_COUNT) != HAL_OK) {
         fault_set_flag(FAULT_INTERNAL);

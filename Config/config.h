@@ -58,6 +58,9 @@ typedef enum {
 #define THRESH_V3V3_MIN      3000U
 #define THRESH_V3V3_MAX      3600U
 
+/* 1 = monitor V+24 (PC0) and latch FAULT_V24_RANGE; 0 = skip (boards without V+24 on V24_M). */
+#define ENABLE_V24_FAULT_CHECK  0U
+
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
 #define THRESH_I_SCALER_MAX  1500U
@@ -163,7 +166,12 @@ typedef enum {
 
 /* ===== Bootloader (Rules 10) ===== */
 #define SRAM_MAGIC_VALUE     0xDEADBEEFU
-#define ROM_BOOTLOADER_ADDR  0x1FFF0000U
+/* System memory / ROM USART bootloader (chip-specific base, same end):
+ *   STM32F030x8  → 0x1FFFEC00 (AN2606, 3 KB)
+ *   APM32F030x8  → 0x1FFFD800 (SEGGER APM32F0xx KB, 8 KB)  ← board MCU
+ * Not 0x1FFF0000 (other ST lines / wrong for F030). */
+#define ROM_BOOTLOADER_ADDR  0x1FFFD800U
+#define ROM_BOOTLOADER_END   0x1FFFF7FFU
 
 /* ===== Global systick (0.3) ===== */
 extern volatile uint32_t systick_ms;

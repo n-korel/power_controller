@@ -7,7 +7,7 @@
  *   - Once TX is idle, process() plants SRAM_MAGIC_VALUE and triggers NVIC_SystemReset
  *
  * bootloader_check() jumps into the ROM bootloader through a function pointer
- * read from an absolute address (0x1FFF0000). That can't run on the host, so
+ * read from an absolute address (ROM_BOOTLOADER_ADDR). That can't run on the host, so
  * it is not exercised here — covered by bring-up on target hardware.
  */
 #include "unity.h"

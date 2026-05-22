@@ -12,20 +12,31 @@ static volatile uint8_t boot_pending;
 /* ===== Check SRAM magic (called BEFORE HAL_Init) ===== */
 void bootloader_check(void)
 {
-    if (boot_magic == SRAM_MAGIC_VALUE) {
-        boot_magic = 0;
-
-        /* Cast via uintptr_t: uint32_t on Cortex-M0, uint64_t on host
-         * (clang-tidy static analysis). Identical binary on the MCU. */
-        uint32_t *vec = (uint32_t *)(uintptr_t)ROM_BOOTLOADER_ADDR;
-        uint32_t sp   = vec[0];
-
-        __set_MSP(sp);
-        void (*jump)(void) = (void (*)(void))(uintptr_t)vec[1];
-        jump();
-
-        while (1) {}
+    if (boot_magic != SRAM_MAGIC_VALUE) {
+        return;
     }
+    boot_magic = 0;
+
+    /* Cast via uintptr_t: uint32_t on Cortex-M0, uint64_t on host
+     * (clang-tidy static analysis). Identical binary on the MCU. */
+    uint32_t *vec = (uint32_t *)(uintptr_t)ROM_BOOTLOADER_ADDR;
+    uint32_t sp   = vec[0];
+    uint32_t pc   = vec[1];
+
+    /* Validate ROM vector table before jumping (ROM_BOOTLOADER_* in config.h).
+     * STM32F030x8: 0x1FFFEC00; APM32F030x8: 0x1FFFD800 — not 0x1FFF0000. */
+    if (sp < 0x20000000U || sp > 0x20002000U) {
+        return;
+    }
+    if (pc < ROM_BOOTLOADER_ADDR || pc > ROM_BOOTLOADER_END) {
+        return;
+    }
+
+    __set_MSP(sp);
+    void (*jump)(void) = (void (*)(void))(uintptr_t)pc;
+    jump();
+
+    while (1) {}
 }
 
 /* ===== Schedule bootloader entry (after ACK TX completes) ===== */
