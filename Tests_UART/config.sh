@@ -4,6 +4,13 @@
 UART_DEVICE="${UART_DEVICE:-/dev/ttyUSB0}"
 UART_BAUD=115200
 
+# Preflight: ждём первый успешный PING после cold boot (вместо фиксированного sleep).
+BOOT_PING_RETRIES="${BOOT_PING_RETRIES:-60}"
+BOOT_PING_INTERVAL_SEC="${BOOT_PING_INTERVAL_SEC:-0.5}"
+
+# Пауза после exec 3<> (USB-UART может дёрнуть DTR → reset MCU).
+UART_POST_OPEN_DELAY_SEC="${UART_POST_OPEN_DELAY_SEC:-0.5}"
+
 # Таймауты чтения (секунды)
 ACK_TIMEOUT_SEC=0.5
 GET_STATUS_TIMEOUT_SEC=1.0

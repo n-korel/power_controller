@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 TESTS=(
-  "00_flush_port.sh"
   "01_ping.sh"
+  "03_reset_fault.sh"   # clear latched faults (e.g. FAULT_V12_RANGE after PGOOD startup)
   "02_get_status.sh"
   "04_neg_backlight.sh"
   "05_neg_lcd_no_scaler.sh"
@@ -19,7 +19,6 @@ TESTS=(
   "10_packet_timeout.sh"
   "11_interbyte_gap.sh"
   "12_stress_get_status.sh"
-  "03_reset_fault.sh"
 )
 
 pass=0
@@ -27,6 +26,21 @@ fail=0
 
 printf '\n=== POWER_Controller UART — bare board ===\n'
 printf 'Port: %s\n\n' "$UART_DEVICE"
+
+printf '%s\n' "--- 00_flush_port.sh ---"
+if bash "$SCRIPT_DIR/00_flush_port.sh"; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  printf '\n'
+fi
+printf '\n'
+
+if ! uart_wait_mcu_ready; then
+  printf '=== Result: 0 PASS, 1 FAIL (MCU UART not ready) ===\n'
+  exit 1
+fi
+printf '\n'
 
 for t in "${TESTS[@]}"; do
   path="$SCRIPT_DIR/$t"

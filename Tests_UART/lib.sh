@@ -94,6 +94,43 @@ uart_open() {
   exec 3<>"$UART_DEVICE"
   _fd_open=1
   uart_drain_fd
+  if [[ "${UART_POST_OPEN_DELAY_SEC:-0}" != 0 ]]; then
+    sleep "${UART_POST_OPEN_DELAY_SEC}"
+  fi
+}
+
+# Preflight после cold boot: повторять PING, пока MCU не ответит.
+uart_wait_mcu_ready() {
+  local attempt=1
+  local max="${BOOT_PING_RETRIES:-60}"
+  local interval="${BOOT_PING_INTERVAL_SEC:-0.5}"
+  local hex=""
+
+  log_info "Waiting for MCU UART (up to ${max} PING, ${interval}s interval)..."
+  require_tty
+  uart_stty
+  exec 3<>"$UART_DEVICE"
+  _fd_open=1
+  if [[ "${UART_POST_OPEN_DELAY_SEC:-0}" != 0 ]]; then
+    sleep "${UART_POST_OPEN_DELAY_SEC}"
+  fi
+  uart_drain_fd
+
+  while (( attempt <= max )); do
+    hex=""
+    if hex="$(cmd_ping_probe_ready 2>/dev/null || true)" && [[ -n "$hex" ]] && expect_ping_aa "$hex"; then
+      log_pass "MCU UART ready (attempt ${attempt}/${max})"
+      uart_close
+      return 0
+    fi
+    if (( attempt < max )); then
+      sleep "$interval"
+    fi
+    attempt=$((attempt + 1))
+  done
+  uart_close
+  log_fail "MCU UART not ready after ${max} PING attempts"
+  return 1
 }
 
 uart_close() {
@@ -162,6 +199,43 @@ cmd_ping() {
   uart_tx_frame 0x01
   sleep 0.15
   uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC"
+}
+
+# Пробный PING для cold boot: читаем поток и ищем ACK в буфере.
+cmd_ping_probe_ready() {
+  local timeout_sec="${1:-1.2}"
+  uart_drain_fd
+  uart_tx_frame 0x01
+  python3 - "$timeout_sec" 3<&3 <<'PY'
+import os
+import select
+import sys
+import time
+
+limit = float(sys.argv[1])
+fd = 3
+buf = b""
+end = time.time() + limit
+
+while time.time() < end:
+    wait = max(0.0, end - time.time())
+    r, _, _ = select.select([fd], [], [], min(wait, 0.1))
+    if not r:
+        continue
+    chunk = os.read(fd, 256)
+    if not chunk:
+        continue
+    buf += chunk
+    if len(buf) > 512:
+        buf = buf[-512:]
+
+for i in range(0, max(0, len(buf) - 5)):
+    frame = buf[i:i+6]
+    if len(frame) == 6 and frame[0] == 0x02 and frame[1] == 0x01 and frame[2] == 0x01 and frame[3] == 0xAA and frame[5] == 0x03:
+        sys.stdout.write(frame.hex())
+        sys.exit(0)
+sys.exit(1)
+PY
 }
 
 cmd_get_status() {

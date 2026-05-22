@@ -9,6 +9,10 @@ trap test_cleanup EXIT
 uart_open
 log_info "truncated GET_STATUS (02 04 00) + PING"
 uart_send_hex "020400"
+# MCU ждёт CRC/ETX после LEN=0; пауза > UART_INTERBYTE_TIMEOUT_MS (10) сбрасывает парсер,
+# иначе байт STX следующего PING попадает в поле CRC (флап на USB-батчинге).
+sleep 0.015
+uart_drain_fd
 uart_tx_frame 0x01
 sleep 0.2
 hex="$(uart_rx 6 "$ACK_TIMEOUT_SEC")" || die "no PING response after truncated frame"

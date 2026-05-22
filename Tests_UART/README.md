@@ -21,6 +21,7 @@ From repo root:
 ```bash
 make test-uart
 make test-uart UART_DEVICE=/dev/ttyACM0
+# longer preflight after cold boot: BOOT_PING_RETRIES=90 make test-uart
 ```
 
 Or directly:
@@ -37,6 +38,7 @@ chmod +x *.sh parse_get_status.py
 |------|------------------|-------------|
 | `run_all_bare_board.sh` | — | Full suite (excludes #13) |
 | `01_ping.sh` | C.1 | PING → `0xAA` |
+| `03_reset_fault.sh` | C.11 | Clears latched faults before clean GET_STATUS |
 | `02_get_status.sh` | C.2 | 31-byte frame, `state=0`, `fault=0` |
 | `04_neg_backlight.sh` | C.7 | BACKLIGHT without SCALER/LCD → `0x01` |
 | `12_stress_get_status.sh` | K.1 | 20× GET_STATUS |
@@ -49,7 +51,7 @@ See table in repo for full list.
 - `SET_BRIGHTNESS`, `BOOTLOADER_ENTER`, `CALIBRATE_OFFSET`
 - SUS_S3# / PWRBTN (needs Q7 or LA)
 
-After test **#13**, run `./03_reset_fault.sh` before `run_all_bare_board.sh`.
+`run_all_bare_board.sh`: `00_flush_port` → **preflight PING retries** (до ${BOOT_PING_RETRIES:-60}×, cold boot) → tests (`03_reset_fault` after `01_ping`, …). После optional **#13** снова `./03_reset_fault.sh`.
 
 ## Wiring
 
