@@ -415,12 +415,18 @@ test_%:
 #   make test-uart
 #   make test-uart UART_DEVICE=/dev/ttyACM0
 #   make test-uart-fault   — optional: expected SEQ_ABORT without display
+#
+# PERIPHERAL UART TESTS (Tests_UART_All/)
+# Display/audio connected, USB-UART, no Q7:
+#   make test-uart-all
 #######################################
 
 UART_DEVICE ?= /dev/ttyUSB0
 TESTS_UART    = Tests_UART
 
-.PHONY: test-uart test-uart-fault test-uart-reset
+TESTS_UART_ALL = Tests_UART_All
+
+.PHONY: test-uart test-uart-fault test-uart-reset test-uart-all
 
 test-uart:
 	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/run_all_bare_board.sh
@@ -430,6 +436,9 @@ test-uart-fault:
 
 test-uart-reset:
 	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/03_reset_fault.sh
+
+test-uart-all:
+	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART_ALL)/run_all_peripheral.sh
 
 warnings-check:
 	@echo ">>> [warnings-check] arm-none-eabi-gcc strict warnings on user code"
