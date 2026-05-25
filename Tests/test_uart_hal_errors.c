@@ -13,6 +13,8 @@ uint8_t  input_get_packed(void)          { return 0; }
 uint8_t  power_ctrl_request(uint16_t m, uint16_t v) { (void)m; (void)v; return 1; }
 void     power_set_brightness(uint16_t p) { (void)p; }
 void     fault_clear_flags(void) {}
+static uint16_t fault_flags_set;
+void     fault_set_flag(uint16_t flag) { fault_flags_set |= flag; }
 void     power_reset_bridge(void) {}
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx) { (void)i; (void)mn; (void)mx; }
 void     power_safe_state(void) {}
@@ -45,12 +47,14 @@ void setUp(void)
     hal_stub_reset();
     systick_ms = 1000;
     error_handler_count = 0;
+    fault_flags_set = 0;
     memset(tx_buf, 0, sizeof(tx_buf));
     tx_busy_flag = 0;
     p_state = PS_WAIT_STX;
     rx_head = 0;
     rx_tail = 0;
     rx_overflow = 0;
+    uart_hw_error = 0;
     pkt_q_head = 0;
     pkt_q_tail = 0;
     pkt_q_count = 0;
@@ -69,15 +73,22 @@ void test_uart_init_receive_it_error_calls_error_handler(void)
     TEST_ASSERT_EQUAL_UINT32(1, error_handler_count);
 }
 
-void test_uart_rx_callback_receive_it_error_calls_error_handler(void)
+void test_uart_rx_callback_receive_it_error_defers_to_main_loop(void)
 {
     uart_protocol_init();
     error_handler_count = 0;
+    fault_flags_set = 0;
     hal_stub_ret_uart_receive_it = HAL_ERROR;
 
     rx_byte = 0x11;
     uart_protocol_rx_byte_cb();
-    TEST_ASSERT_EQUAL_UINT32(1, error_handler_count);
+    TEST_ASSERT_EQUAL_UINT32(0, error_handler_count);
+    TEST_ASSERT_EQUAL_UINT8(1, uart_hw_error);
+
+    uart_protocol_process();
+    TEST_ASSERT_EQUAL_UINT32(0, error_handler_count);
+    TEST_ASSERT_EQUAL_UINT8(0, uart_hw_error);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_INTERNAL);
 }
 
 void test_uart_tx_busy_suppresses_transmit_call(void)
@@ -109,7 +120,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_uart_init_receive_it_error_calls_error_handler);
-    RUN_TEST(test_uart_rx_callback_receive_it_error_calls_error_handler);
+    RUN_TEST(test_uart_rx_callback_receive_it_error_defers_to_main_loop);
     RUN_TEST(test_uart_tx_busy_suppresses_transmit_call);
     RUN_TEST(test_uart_transmit_it_error_calls_error_handler_and_clears_busy);
     return UNITY_END();

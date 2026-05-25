@@ -41,9 +41,21 @@ chmod +x *.sh parse_get_status.py
 | `03_reset_fault.sh` | C.11 | Clears latched faults before clean GET_STATUS |
 | `02_get_status.sh` | C.2 | 31-byte frame, `state=0`, `fault=0` |
 | `04_neg_backlight.sh` | C.7 | BACKLIGHT without SCALER/LCD → `0x01` |
-| `12_stress_get_status.sh` | K.1 | 20× GET_STATUS |
+| `12_stress_get_status.sh` | K.1 | 20× GET_STATUS (50 ms gap) |
+| `14_neg_scaler_backlight.sh` | K.3 | SCALER\|BACKLIGHT without LCD → `0x01` |
+| `15_simple_domains.sh` | K.5 | TOUCH / ETH1 / ETH2 toggle |
+| `16_telemetry_sanity.sh` | A.2, A.3 | Rails, zero-load currents, NTC absent |
+| `17_fault_v12_range.sh` | F.1 | SET_THRESHOLDS → `FAULT_V12_RANGE`, restore |
+| `18_fault_reserved.sh` | F.3 | Bit 15 never set under fault |
+| `19_iwdg_stress.sh` | I.1 | 20× GET_STATUS (100 ms gap) |
+| `20_set_brightness_neg.sh` | — | SET_BRIGHTNESS bad LEN, pwm>1000 |
+| `21_power_ctrl_neg.sh` | — | POWER_CTRL bad LEN, unknown bits |
+| `23_set_thresholds_neg.sh` | — | SET_THRESHOLDS invalid mask / min≥max / truncated |
+| `24_fault_v5_range.sh` | F.1 | SET_THRESHOLDS → FAULT_V5_RANGE |
+| `25_fault_v3v3_range.sh` | F.1 | SET_THRESHOLDS → FAULT_V3V3_RANGE |
+| `26_verify_rx_crc.sh` | — | CRC on PING and GET_STATUS responses |
 
-See table in repo for full list.
+Not in `make test-uart`: autostart (`27+`), bootloader (`stm32flash`), optional `#13`.
 
 ## Not in bare-board run
 

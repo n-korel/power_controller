@@ -16,7 +16,8 @@ void uart_protocol_process(void);
 
 /* Called from HAL_UART_RxCpltCallback (ISR context).
  * Minimal work: pushes one byte into RX ring and re-arms HAL_UART_Receive_IT.
- * All parsing and CRC verification happen in uart_protocol_process(). */
+ * On re-arm failure only uart_hw_error is set (no Error_Handler in ISR).
+ * All parsing, CRC verification, and uart_hw_error handling run in uart_protocol_process(). */
 void uart_protocol_rx_byte_cb(void);
 
 /* Called from HAL_UART_TxCpltCallback */

@@ -189,6 +189,9 @@ void NVIC_SystemReset(void)
 
 void __DSB(void) {}
 
+void __disable_irq(void) {}
+void __enable_irq(void) {}
+
 __attribute__((weak)) void Error_Handler(void) {}
 
 /* Optional weak mock: tests can override with a strong definition. */

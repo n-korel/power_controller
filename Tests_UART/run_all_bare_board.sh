@@ -19,6 +19,18 @@ TESTS=(
   "10_packet_timeout.sh"
   "11_interbyte_gap.sh"
   "12_stress_get_status.sh"
+  "14_neg_scaler_backlight.sh"
+  "15_simple_domains.sh"
+  "16_telemetry_sanity.sh"
+  "20_set_brightness_neg.sh"
+  "21_power_ctrl_neg.sh"
+  "23_set_thresholds_neg.sh"
+  "26_verify_rx_crc.sh"
+  "19_iwdg_stress.sh"
+  "17_fault_v12_range.sh"
+  "24_fault_v5_range.sh"
+  "25_fault_v3v3_range.sh"
+  "18_fault_reserved.sh"
 )
 
 pass=0
@@ -37,8 +49,19 @@ fi
 printf '\n'
 
 if ! uart_wait_mcu_ready; then
-  printf '=== Result: 0 PASS, 1 FAIL (MCU UART not ready) ===\n'
-  exit 1
+  log_info "Retrying UART preflight once after port re-init..."
+  printf '%s\n' "--- 00_flush_port.sh (retry) ---"
+  if bash "$SCRIPT_DIR/00_flush_port.sh"; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf '\n'
+  fi
+  printf '\n'
+  if ! uart_wait_mcu_ready; then
+    printf '=== Result: %d PASS, %d FAIL (MCU UART not ready) ===\n' "$pass" "$fail"
+    exit 1
+  fi
 fi
 printf '\n'
 

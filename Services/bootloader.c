@@ -49,6 +49,8 @@ void bootloader_schedule(void)
 void bootloader_process(void)
 {
     if (!boot_pending) return;
+    /* cppcheck-suppress knownConditionTrueFalse ; uart_tx_busy() reflects runtime TX state;
+       false positive when bootloader.c is #included from unit-test stubs. */
     if (uart_tx_busy()) return;
 
     boot_magic = SRAM_MAGIC_VALUE;

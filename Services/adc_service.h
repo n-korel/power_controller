@@ -6,12 +6,15 @@
 void     adc_service_init(void);
 void     adc_service_process(void);
 
+/* 1 after adc_service_process() integrated a new DMA scan; cleared on consume. */
+uint8_t  adc_service_consume_new_sample(void);
+
 uint16_t adc_get_voltage_mv(uint8_t idx);
 int16_t  adc_get_current_ma(uint8_t idx);
 int16_t  adc_get_temp(uint8_t idx);
 uint16_t adc_get_raw_avg(uint8_t idx);
 
-/* Direct access to the DMA buffer (passed to HAL_ADC_Start_DMA) */
+/* DMA double-buffer (2 × ADC_CHANNEL_COUNT samples) for HAL_ADC_Start_DMA */
 volatile uint16_t *adc_get_dma_buf(void);
 
 /* Calibration offset for current channels (raw ADC units) */

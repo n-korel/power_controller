@@ -78,6 +78,28 @@ void test_startup_begin_is_blocked_while_fault_is_latched(void)
     TEST_ASSERT_EQUAL_UINT32(0, sseq_timer);
 }
 
+void test_startup_begin_second_call_restarts_wait_timer(void)
+{
+    /* With no latched fault, each power_startup_begin() overwrites sseq_timer
+     * (the call is not ignored while sseq == STARTUP_WAIT_PGOOD). */
+    mock_pgood = 0;
+    systick_ms = 1000;
+    power_startup_begin();
+    TEST_ASSERT_EQUAL_UINT32(1000, sseq_timer);
+
+    tick_ms(PGOOD_TIMEOUT_MS - 100);
+
+    power_startup_begin();
+    TEST_ASSERT_EQUAL_UINT32(systick_ms, sseq_timer);
+    TEST_ASSERT_EQUAL_INT(STARTUP_WAIT_PGOOD, sseq);
+
+    tick_ms(200);
+    /* Without the timer restart at the second begin, (now - 1000) >= 5000 ms
+     * would already have latched FAULT_PGOOD_LOST. */
+    TEST_ASSERT_EQUAL_INT(STARTUP_WAIT_PGOOD, sseq);
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
+}
+
 /* ===== PGOOD=HIGH -> auto-startup (Rules §6.5) ===== */
 
 void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
@@ -227,6 +249,7 @@ int main(void)
     RUN_TEST(test_process_without_begin_is_noop);
     RUN_TEST(test_startup_begin_arms_wait_and_captures_timer);
     RUN_TEST(test_startup_begin_is_blocked_while_fault_is_latched);
+    RUN_TEST(test_startup_begin_second_call_restarts_wait_timer);
     RUN_TEST(test_pgood_high_triggers_auto_startup_and_returns_idle);
     RUN_TEST(test_pgood_high_full_up_completes_without_backlight);
     RUN_TEST(test_pgood_low_below_timeout_stays_waiting);

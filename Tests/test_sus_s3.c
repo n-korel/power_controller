@@ -156,6 +156,23 @@ void test_sus_ignored_without_pgood(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(PWRBTN_GPIO_Port, PWRBTN_Pin));
 }
 
+/* ===== systick_ms wraparound (Rules §12) ===== */
+
+void test_sus_pwrbtn_works_across_systick_wrap(void)
+{
+    /* Arm just before uint32_t wrap; stop before PWRBTN_PULSE_MS completes so the
+     * active-low pulse is still visible (same unsigned delta-t pattern as startup SM). */
+    systick_ms = 0xFFFFFFFFU - 100U;
+    mock_sus_s3 = 0;
+
+    tick_ms(100U + SUS_S3_THRESHOLD_MS + 20U);
+
+    GPIO_PinState st;
+    TEST_ASSERT_TRUE(pth_last_gpio_write(PWRBTN_GPIO_Port, PWRBTN_Pin, &st));
+    TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
+    TEST_ASSERT_EQUAL_UINT32(1, pth_gpio_write_count(PWRBTN_GPIO_Port, PWRBTN_Pin));
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -167,5 +184,6 @@ int main(void)
     RUN_TEST(test_cooldown_5s_blocks_second_trigger);
     RUN_TEST(test_second_trigger_after_cooldown_is_allowed);
     RUN_TEST(test_sus_ignored_without_pgood);
+    RUN_TEST(test_sus_pwrbtn_works_across_systick_wrap);
     return UNITY_END();
 }

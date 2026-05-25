@@ -30,7 +30,7 @@ void uart_protocol_init(void)          { order_uart_protocol_init = ++seq; }
 void power_startup_begin(void)         { ++seq; }
 void fault_set_flag(uint16_t flag)     { (void)flag; ++seq; }
 
-static uint16_t dma_buf_stub[ADC_CHANNEL_COUNT];
+static uint16_t dma_buf_stub[ADC_CHANNEL_COUNT * 2U];
 uint16_t *adc_get_dma_buf(void)        { return dma_buf_stub; }
 
 void uart_protocol_process(void)       {}

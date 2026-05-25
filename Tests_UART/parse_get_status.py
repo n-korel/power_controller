@@ -22,8 +22,11 @@ def parse_frame(raw: bytes) -> dict[str, int]:
 
     off = 0
     out: dict[str, int] = {}
-    for name in ("v24", "v12", "v5", "v3v3", "i_lcd", "i_backlight", "i_scaler", "i_audio_l", "i_audio_r"):
+    for name in ("v24", "v12", "v5", "v3v3"):
         out[name] = struct.unpack_from("<H", data, off)[0]
+        off += 2
+    for name in ("i_lcd", "i_backlight", "i_scaler", "i_audio_l", "i_audio_r"):
+        out[name] = struct.unpack_from("<h", data, off)[0]
         off += 2
     for name in ("temp0", "temp1"):
         out[name] = struct.unpack_from("<h", data, off)[0]

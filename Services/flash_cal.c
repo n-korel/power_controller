@@ -1,6 +1,7 @@
 #include "flash_cal.h"
 #include "config.h"
 #include "adc_service.h"
+#include "power_manager.h"
 #include "stm32f0xx_hal.h"
 #include <string.h>
 #include <stddef.h>
@@ -90,6 +91,9 @@ void flash_cal_load(void)
 /* ===== Calibrate: snapshot current channel raw values and write to Flash ===== */
 uint8_t flash_cal_calibrate(void)
 {
+    if (power_get_state() != 0)
+        return 1;
+
     flash_cal_t cal;
     memset(&cal, 0, sizeof(cal));
     cal.magic    = FLASH_CAL_MAGIC;

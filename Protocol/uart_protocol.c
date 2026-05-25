@@ -68,6 +68,7 @@ static volatile uint8_t  rx_ring[UART_RX_RING_SIZE];
 static volatile uint16_t rx_head;        /* written by ISR only */
 static volatile uint16_t rx_tail;        /* written by main loop only */
 static volatile uint8_t  rx_overflow;    /* set by ISR when ring is full */
+static volatile uint8_t  uart_hw_error;  /* set by ISR when HAL_UART_Receive_IT fails */
 static volatile uint8_t  rx_byte;        /* HAL_UART_Receive_IT target */
 
 /* Parsed packet queue: decouple RX parsing from TX busy time. */
@@ -91,6 +92,7 @@ void uart_protocol_init(void)
     rx_head = 0;
     rx_tail = 0;
     rx_overflow = 0;
+    uart_hw_error = 0;
     pkt_q_head = 0;
     pkt_q_tail = 0;
     pkt_q_count = 0;
@@ -117,7 +119,7 @@ void uart_protocol_rx_byte_cb(void)
     }
 
     if (HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1) != HAL_OK) {
-        Error_Handler();
+        uart_hw_error = 1;
     }
 }
 
@@ -277,11 +279,11 @@ static void handle_get_status(void)
         buf[pos++] = (uint8_t)(v & 0xFF);
         buf[pos++] = (uint8_t)(v >> 8);
     }
-    /* 5 currents (uint16 LE — sent as unsigned representation of signed) */
+    /* 5 currents (int16 LE, mA; may be negative near zero before/after calibration) */
     for (uint8_t i = 0; i < 5; i++) {
-        uint16_t c = (uint16_t)adc_get_current_ma(i);
-        buf[pos++] = (uint8_t)(c & 0xFF);
-        buf[pos++] = (uint8_t)(c >> 8);
+        int16_t c = adc_get_current_ma(i);
+        buf[pos++] = (uint8_t)((uint16_t)c & 0xFF);
+        buf[pos++] = (uint8_t)((uint16_t)c >> 8);
     }
     /* 2 temperatures (int16 LE) */
     for (uint8_t i = 0; i < 2; i++) {
@@ -437,6 +439,13 @@ static void handle_calibrate_offset(void)
 /* ===== Main-loop process ===== */
 void uart_protocol_process(void)
 {
+    /* UART RX peripheral failure (ISR only sets flag; Rules §8). */
+    if (uart_hw_error) {
+        uart_hw_error = 0;
+        fault_set_flag(FAULT_INTERNAL);
+        return;
+    }
+
     /* Drain RX ring buffer and run parser. If ISR signalled overflow,
      * drop pending bytes and reset parser to re-sync on next STX. */
     if (rx_overflow) {

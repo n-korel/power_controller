@@ -8,6 +8,7 @@
 - **Безопасное состояние**: `Tests/test_safe_state.c` (Rules_POWER.md §3.2, инварианты safe state).
 - **FSM sequencing**: `Tests/test_power_sequence.c`, `Tests/test_audio_sequence.c`, `Tests/test_startup_sm.c` (пошаговое тикание, проверка GPIO-логов).
 - **Fault engine**: `Tests/test_fault_policy.c` (latched, подтверждение 5 подряд, safe state first).
+- **Cross-domain fault recovery**: `Tests/test_fault_cross_domain_isolation.c` (инвариант #42: любой fault → full safe state; после `RESET_FAULT` + `POWER_CTRL` другой домен включается независимо; матрица пар fault→recovery).
 - **UART parser/dispatch**: `Tests/test_protocol_parser.c` (frame layout, CRC, очередь пакетов).
 - **Контракт-скрипт**: `Tests/contract_check.py` (сверка YAML contract ↔ `Config/config.h`, запрет `HAL_Delay`, уникальность `HAL_IWDG_Refresh`).
 

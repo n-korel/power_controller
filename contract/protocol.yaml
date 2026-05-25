@@ -24,7 +24,7 @@ commands:
   - {name: RESET_BRIDGE,     code: 0x06, req_len: 0, resp_len: 1}
   - {name: SET_THRESHOLDS,   code: 0x07, req_len: ">=2", resp_len: 1, req_fields: [{name: mask, type: uint16_le, offset: 0}]}
   - {name: BOOTLOADER_ENTER, code: 0x08, req_len: 0, resp_len: 1}
-  - {name: CALIBRATE_OFFSET, code: 0x09, req_len: 0, resp_len: 1}
+  - {name: CALIBRATE_OFFSET, code: 0x09, req_len: 0, resp_len: 1, resp_notes: "status=0x00 OK; status=0x01 error (domains must be OFF: GET_STATUS.state==0; run RESET_FAULT first if needed)"}
   - {name: NACK,             code: 0xFF, req_len: 1, resp_len: 0,  req_fields: [{name: error_code, type: uint8, offset: 0}]}
 
 get_status:
@@ -34,11 +34,11 @@ get_status:
     - {field: v12_mv,           type: uint16_le, offset: 2}
     - {field: v5_mv,            type: uint16_le, offset: 4}
     - {field: v3v3_mv,          type: uint16_le, offset: 6}
-    - {field: i_lcd_ma,         type: uint16_le, offset: 8}
-    - {field: i_bl_ma,          type: uint16_le, offset: 10}
-    - {field: i_scaler_ma,      type: uint16_le, offset: 12}
-    - {field: i_audio_l_ma,     type: uint16_le, offset: 14}
-    - {field: i_audio_r_ma,     type: uint16_le, offset: 16}
+    - {field: i_lcd_ma,         type: int16_le,  offset: 8}
+    - {field: i_bl_ma,          type: int16_le,  offset: 10}
+    - {field: i_scaler_ma,      type: int16_le,  offset: 12}
+    - {field: i_audio_l_ma,     type: int16_le,  offset: 14}
+    - {field: i_audio_r_ma,     type: int16_le,  offset: 16}
     - {field: temp0,            type: int16_le,  offset: 18}
     - {field: temp1,            type: int16_le,  offset: 20}
     - {field: state,            type: uint8,     offset: 22}

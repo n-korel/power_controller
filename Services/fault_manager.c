@@ -76,9 +76,12 @@ void fault_manager_init(void)
 void fault_manager_process(void)
 {
     uint8_t pstate = power_get_state();
+    uint8_t adc_new = adc_service_consume_new_sample();
 
     /* --- Voltage checks (only when any power domain is on) --- */
-    if (pstate) {
+    /* cppcheck-suppress knownConditionTrueFalse ; adc_new comes from volatile new_sample
+     * set only when snapshot_ready; cppcheck ties it to app_step order. */
+    if (pstate && adc_new) {
         static const uint16_t v_fault_bits[4] = {
             FAULT_V24_RANGE, FAULT_V12_RANGE, FAULT_V5_RANGE, FAULT_V3V3_RANGE
         };
@@ -112,7 +115,7 @@ void fault_manager_process(void)
     /* --- Current checks (signed comparison: negative = sensor below offset, not a fault) --- */
     /* LCD current — check only if LCD domain on */
     pstate = power_get_state();
-    if (pstate & DOM_LCD) {
+    if (adc_new && (pstate & DOM_LCD)) {
         if (current_exceeds_threshold(0)) {
             i_consec[0]++;
             if (i_consec[0] >= FAULT_CONFIRM_COUNT) {
@@ -126,7 +129,7 @@ void fault_manager_process(void)
 
     /* Backlight current */
     pstate = power_get_state();
-    if (pstate & DOM_BACKLIGHT) {
+    if (adc_new && (pstate & DOM_BACKLIGHT)) {
         if (current_exceeds_threshold(1)) {
             i_consec[1]++;
             if (i_consec[1] >= FAULT_CONFIRM_COUNT) {
@@ -140,7 +143,7 @@ void fault_manager_process(void)
 
     /* Scaler current */
     pstate = power_get_state();
-    if (pstate & DOM_SCALER) {
+    if (adc_new && (pstate & DOM_SCALER)) {
         if (current_exceeds_threshold(2)) {
             i_consec[2]++;
             if (i_consec[2] >= FAULT_CONFIRM_COUNT) {
@@ -154,7 +157,7 @@ void fault_manager_process(void)
 
     /* Audio L/R current */
     pstate = power_get_state();
-    if (pstate & DOM_AUDIO) {
+    if (adc_new && (pstate & DOM_AUDIO)) {
         for (uint8_t ch = 3; ch < 5; ch++) {
             if (current_exceeds_threshold(ch)) {
                 i_consec[ch]++;

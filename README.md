@@ -201,7 +201,7 @@ flowchart LR
 
 `BOOTLOADER_ENTER`: ACK → safe state → reset → ROM bootloader на **UART0** (`0x1FFFD800` для APM32F030R8T6; `0x1FFFEC00` для STM32F030x8 — см. `ROM_BOOTLOADER_ADDR` в `config.h`). После команды связь с приложением обрывается — будьте готовы к OTA-сессии.
 
-`CALIBRATE_OFFSET`: при **нулевой** нагрузке по токовым каналам сохранить offset во flash MCU.
+`CALIBRATE_OFFSET`: при **нулевой** нагрузке и **выключенных доменах** (`GET_STATUS.state == 0`) сохранить offset во flash MCU. Перед командой: при fault — `RESET_FAULT`, затем выключить все домены. При включённых доменах — `status=0x01`, flash не пишется.
 
 ---
 
@@ -215,11 +215,11 @@ flowchart LR
 | 2      | `v12`         | uint16 | 12V, мВ                                   |
 | 4      | `v5`          | uint16 | 5V, мВ                                    |
 | 6      | `v3v3`        | uint16 | 3.3V, мВ                                  |
-| 8      | `i_lcd`       | uint16 | ток LCD, мА                               |
-| 10     | `i_backlight` | uint16 | ток подсветки, мА                         |
-| 12     | `i_scaler`    | uint16 | ток scaler, мА                            |
-| 14     | `i_audio_l`   | uint16 | ток audio L, мА                           |
-| 16     | `i_audio_r`   | uint16 | ток audio R, мА                           |
+| 8      | `i_lcd`       | int16  | ток LCD, мА (знаковый; у нуля возможны отриц. значения) |
+| 10     | `i_backlight` | int16  | ток подсветки, мА                         |
+| 12     | `i_scaler`    | int16  | ток scaler, мА                            |
+| 14     | `i_audio_l`   | int16  | ток audio L, мА                           |
+| 16     | `i_audio_r`   | int16  | ток audio R, мА                           |
 | 18     | `temp0`       | int16  | резерв; без NTC = **-32768**              |
 | 20     | `temp1`       | int16  | резерв; без NTC = **-32768**              |
 | 22     | `state`       | uint8  | маска доменов (биты 0…6 как в POWER_CTRL) |
@@ -300,7 +300,7 @@ POWER_CTRL  →  явное включение нужных доменов
 
 ### Калибровка нуля токов
 
-При гарантированно нулевой нагрузке: `CALIBRATE_OFFSET (0x09)`. Выполнять редко (запись во flash).
+При гарантированно нулевой нагрузке и `state==0`: `RESET_FAULT` (если нужно) → выключить домены → `CALIBRATE_OFFSET (0x09)`. Выполнять редко (запись во flash).
 
 ---
 

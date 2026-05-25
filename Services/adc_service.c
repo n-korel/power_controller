@@ -1,8 +1,20 @@
 #include "adc_service.h"
 #include "config.h"
+#ifndef UNIT_TEST
+#include "adc.h"
+#endif
 
-/* DMA target buffer — passed to HAL_ADC_Start_DMA */
-static volatile uint16_t dma_buf[ADC_CHANNEL_COUNT];
+/* Circular DMA double-buffer: HT/TC mark each completed scan half. */
+static volatile uint16_t adc_dma[ADC_CHANNEL_COUNT * 2U];
+
+#ifdef UNIT_TEST
+#define dma_buf adc_dma
+#endif
+
+/* Coherent scan snapshot — filled only from DMA HT/TC (or adc_dma[0] in unit tests). */
+static uint16_t snapshot[ADC_CHANNEL_COUNT];
+static volatile uint8_t snapshot_ready;
+static volatile uint8_t new_sample;
 
 /* Sliding window */
 static uint16_t window[ADC_CHANNEL_COUNT][ADC_WINDOW_SIZE];
@@ -31,19 +43,69 @@ void adc_service_init(void)
     for (uint8_t i = 0; i < CURRENT_CHANNELS; i++)
         current_offset_raw[i] = def;
 
-    window_idx  = 0;
-    window_fill = 0;
+    window_idx     = 0;
+    window_fill    = 0;
+    snapshot_ready = 0;
+    new_sample     = 0;
 
     for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
         for (uint8_t s = 0; s < ADC_WINDOW_SIZE; s++)
             window[ch][s] = 0;
 }
 
+static void adc_snapshot_from_dma(uint8_t half_offset)
+{
+    for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
+        snapshot[ch] = adc_dma[half_offset + ch];
+    snapshot_ready = 1;
+}
+
+#ifndef UNIT_TEST
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc_inst)
+{
+    if (hadc_inst->Instance != ADC1)
+        return;
+    adc_snapshot_from_dma(0);
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc_inst)
+{
+    if (hadc_inst->Instance != ADC1)
+        return;
+    adc_snapshot_from_dma(ADC_CHANNEL_COUNT);
+}
+#endif
+
+uint8_t adc_service_consume_new_sample(void)
+{
+    __disable_irq();
+    uint8_t ready = new_sample;
+    new_sample = 0;
+    __enable_irq();
+    return ready;
+}
+
 void adc_service_process(void)
 {
-    /* Snapshot DMA buffer into window */
+    uint16_t sample[ADC_CHANNEL_COUNT];
+
+#ifndef UNIT_TEST
+    __disable_irq();
+    if (!snapshot_ready) {
+        __enable_irq();
+        return;
+    }
     for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
-        window[ch][window_idx] = dma_buf[ch];
+        sample[ch] = snapshot[ch];
+    snapshot_ready = 0;
+    __enable_irq();
+#else
+    for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
+        sample[ch] = dma_buf[ch];
+#endif
+
+    for (uint8_t ch = 0; ch < ADC_CHANNEL_COUNT; ch++)
+        window[ch][window_idx] = sample[ch];
 
     window_idx++;
     if (window_idx >= ADC_WINDOW_SIZE)
@@ -79,13 +141,15 @@ void adc_service_process(void)
         int32_t  diff_mv   = (int32_t)adc_mv - (int32_t)offset_mv;
         current_ma[i] = (int16_t)(diff_mv * 1000 / (int32_t)CURRENT_SENSITIVITY_MV_PER_A);
     }
+
+    new_sample = 1;
 }
 
 /* ---- Public getters ---- */
 
 volatile uint16_t *adc_get_dma_buf(void)
 {
-    return dma_buf;
+    return adc_dma;
 }
 
 uint16_t adc_get_voltage_mv(uint8_t idx)

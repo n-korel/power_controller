@@ -28,7 +28,8 @@ void app_init(void)
         /* Keep boot flow alive on MCU-compatible parts where ADC calibration
          * may be unsupported or return HAL_ERROR. */
     }
-    if (HAL_ADC_Start_DMA(&hadc, (uint32_t *)adc_get_dma_buf(), ADC_CHANNEL_COUNT) != HAL_OK) {
+    if (HAL_ADC_Start_DMA(&hadc, (uint32_t *)adc_get_dma_buf(),
+                          ADC_CHANNEL_COUNT * 2U) != HAL_OK) {
         fault_set_flag(FAULT_INTERNAL);
         return;
     }

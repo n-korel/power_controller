@@ -170,8 +170,12 @@ typedef enum {
  *   STM32F030x8  → 0x1FFFEC00 (AN2606, 3 KB)
  *   APM32F030x8  → 0x1FFFD800 (SEGGER APM32F0xx KB, 8 KB)  ← board MCU
  * Not 0x1FFF0000 (other ST lines / wrong for F030). */
+#ifndef ROM_BOOTLOADER_ADDR
 #define ROM_BOOTLOADER_ADDR  0x1FFFD800U
+#endif
+#ifndef ROM_BOOTLOADER_END
 #define ROM_BOOTLOADER_END   0x1FFFF7FFU
+#endif
 
 /* ===== Global systick (0.3) ===== */
 extern volatile uint32_t systick_ms;

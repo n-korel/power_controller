@@ -55,6 +55,7 @@ void     power_set_brightness(uint16_t p)
     mock_set_brightness_called = 1;
 }
 void     fault_clear_flags(void)         { mock_fault_clear_called = 1; }
+void     fault_set_flag(uint16_t flag)   { (void)flag; }
 void     power_reset_bridge(void)        { mock_power_reset_bridge_called = 1; }
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
 {
@@ -645,6 +646,86 @@ void test_dispatch_set_thresholds_rejects_extra_bytes(void)
     TEST_ASSERT_EQUAL_UINT8(0, mock_thresh_count);
 }
 
+/*
+ * Spec (POWER_Controller.md §9): byte 0x02 starts a new packet (parser reset).
+ * Implementation: PS_READ_DATA / PS_READ_CRC ignore STX; only interbyte/packet
+ * timeout or PS_WAIT_ETX (non-ETX) returns to PS_WAIT_STX.
+ */
+
+void test_parser_stx_in_data_resync_via_packet_timeout(void)
+{
+    /* STX inside DATA is stored as payload, not a resync. Parser stays mid-frame until
+     * UART_PACKET_TIMEOUT_MS; only then a following valid PING is accepted. */
+    uint8_t data[4] = { 0x11, 0x22, 0x33, 0x44 };
+    uint8_t pkt[16];
+    (void)build_packet(pkt, CMD_POWER_CTRL, data, 4);
+
+    p_state = PS_WAIT_STX;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
+    p_last_byte_ts = systick_ms;
+
+    parser_feed(pkt[0]); /* STX */
+    parser_feed(pkt[1]); /* CMD */
+    parser_feed(pkt[2]); /* LEN=4 */
+    parser_feed(pkt[3]); /* data[0] */
+    parser_feed(PROTO_STX); /* spec would restart here; impl treats as data[1] */
+
+    TEST_ASSERT_EQUAL_INT(PS_READ_DATA, p_state);
+    TEST_ASSERT_EQUAL_UINT8(2, p_data_cnt);
+    TEST_ASSERT_EQUAL_HEX8(PROTO_STX, p_rx_pkt.data[1]);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+
+    uint8_t ping[8];
+    uint16_t np = build_packet(ping, CMD_PING, NULL, 0);
+    /* In-stream PING bytes while still in PS_READ_DATA are absorbed as DATA/CRC. */
+    for (uint16_t i = 0; i < np; i++)
+        parser_feed(ping[i]);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+
+    systick_ms += UART_PACKET_TIMEOUT_MS + 10;
+    uart_protocol_process();
+    TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
+
+    parse_bytes_direct(ping, np);
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_PING, pkt0->cmd);
+}
+
+void test_parser_stx_in_wait_etx_immediate_idle(void)
+{
+    /* STX at PS_WAIT_ETX: aborts frame immediately (no packet timeout). STX byte is
+     * consumed as a non-ETX trailer — does not open a new frame in the same feed. */
+    uint8_t gs[8];
+    uint16_t ng = build_packet(gs, CMD_GET_STATUS, NULL, 0);
+
+    p_state = PS_WAIT_STX;
+    pkt_q_head = 0;
+    pkt_q_tail = 0;
+    pkt_q_count = 0;
+    p_last_byte_ts = systick_ms;
+
+    for (uint16_t i = 0; i < ng - 1U; i++)
+        parser_feed(gs[i]);
+    TEST_ASSERT_EQUAL_INT(PS_WAIT_ETX, p_state);
+
+    parser_feed(PROTO_STX);
+    TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+
+    uint8_t ping[8];
+    uint16_t np = build_packet(ping, CMD_PING, NULL, 0);
+    parse_bytes_direct(ping, np);
+
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    const proto_packet_t *pkt0 = queued_packet_peek();
+    TEST_ASSERT_NOT_NULL(pkt0);
+    TEST_ASSERT_EQUAL_HEX8(CMD_PING, pkt0->cmd);
+}
+
 void test_parser_resync_on_stx_after_bad_packet(void)
 {
     /* Feed a bad packet (CRC mismatch), then a valid packet starting at an in-stream STX.
@@ -863,6 +944,37 @@ void test_packet_queue_overflow_sets_pending_nack(void)
     TEST_ASSERT_EQUAL_UINT8(1, pkt_q_overflow_nack_pending);
 }
 
+void test_uart_process_tx_busy_preserves_queue_until_cplt(void)
+{
+    uint8_t pkt[8];
+    uint16_t n = build_packet(pkt, CMD_PING, NULL, 0);
+    feed_bytes(pkt, n);
+
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    TEST_ASSERT_NOT_NULL(queued_packet_peek());
+    TEST_ASSERT_EQUAL_HEX8(CMD_PING, queued_packet_peek()->cmd);
+
+    tx_busy_flag = 1;
+    hal_call_log_count = 0;
+
+    for (uint8_t i = 0; i < 5; i++) {
+        uart_protocol_process();
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
+    TEST_ASSERT_EQUAL_UINT32(0, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
+
+    uart_tx_cplt_cb();
+    TEST_ASSERT_EQUAL_UINT8(0, tx_busy_flag);
+
+    hal_call_log_count = 0;
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_UINT32(1, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
+    TEST_ASSERT_EQUAL_HEX8(CMD_PING, tx_buf[1]);
+}
+
 void test_dispatch_sends_nack_after_queue_overflow_when_queue_drained(void)
 {
     proto_packet_t pkt = { .cmd = CMD_PING, .len = 0 };
@@ -934,6 +1046,9 @@ int main(void)
     RUN_TEST(test_rx_ring_overflow_sets_flag_and_resets_parser);
     RUN_TEST(test_packet_queue_overflow_sets_pending_nack);
     RUN_TEST(test_dispatch_sends_nack_after_queue_overflow_when_queue_drained);
+    RUN_TEST(test_uart_process_tx_busy_preserves_queue_until_cplt);
+    RUN_TEST(test_parser_stx_in_data_resync_via_packet_timeout);
+    RUN_TEST(test_parser_stx_in_wait_etx_immediate_idle);
     RUN_TEST(test_parser_resync_on_stx_after_bad_packet);
     return UNITY_END();
 }

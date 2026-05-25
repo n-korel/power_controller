@@ -34,12 +34,15 @@ PTH_SRC    = $(TESTS_DIR)/stubs/power_test_helpers.c
 
 # All test executables
 TESTS = test_crc test_adc_conversion test_protocol_parser \
-        test_power_ctrl test_fault_policy test_input_packing \
+        test_power_ctrl test_power_effective_state test_fault_policy test_fault_cross_domain_isolation \
+        test_fault_consecutive_reset \
+        test_input_packing \
         test_invariants test_safe_state test_power_sequence \
-        test_audio_sequence test_sus_s3 test_bridge_reset \
-        test_flash_cal test_bootloader test_brightness \
+        test_power_force_off_domains test_audio_sequence test_audio_ctrl_edge_cases \
+        test_sus_s3 test_bridge_reset \
+        test_flash_cal test_bootloader test_bootloader_check test_brightness \
         test_startup_sm test_main_loop_order test_uart_hal_errors \
-        test_app_init_order
+        test_app_init_order test_set_thresholds
 
 TEST_BINS = $(addprefix $(BUILD_DIR)/, $(TESTS))
 
@@ -95,7 +98,16 @@ $(BUILD_DIR)/test_protocol_parser: $(TESTS_DIR)/test_protocol_parser.c $(STUBS_S
 $(BUILD_DIR)/test_power_ctrl: $(TESTS_DIR)/test_power_ctrl.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
+$(BUILD_DIR)/test_power_effective_state: $(TESTS_DIR)/test_power_effective_state.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
 $(BUILD_DIR)/test_fault_policy: $(TESTS_DIR)/test_fault_policy.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_fault_cross_domain_isolation: $(TESTS_DIR)/test_fault_cross_domain_isolation.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_fault_consecutive_reset: $(TESTS_DIR)/test_fault_consecutive_reset.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_input_packing: $(TESTS_DIR)/test_input_packing.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
@@ -110,7 +122,13 @@ $(BUILD_DIR)/test_safe_state: $(TESTS_DIR)/test_safe_state.c $(STUBS_SRC) $(PTH_
 $(BUILD_DIR)/test_power_sequence: $(TESTS_DIR)/test_power_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
+$(BUILD_DIR)/test_power_force_off_domains: $(TESTS_DIR)/test_power_force_off_domains.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
 $(BUILD_DIR)/test_audio_sequence: $(TESTS_DIR)/test_audio_sequence.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_audio_ctrl_edge_cases: $(TESTS_DIR)/test_audio_ctrl_edge_cases.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_sus_s3: $(TESTS_DIR)/test_sus_s3.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
@@ -123,6 +141,9 @@ $(BUILD_DIR)/test_flash_cal: $(TESTS_DIR)/test_flash_cal.c $(STUBS_SRC) $(UNITY_
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_bootloader: $(TESTS_DIR)/test_bootloader.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-int-to-pointer-cast -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_bootloader_check: $(TESTS_DIR)/test_bootloader_check.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Wno-int-to-pointer-cast -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_brightness: $(TESTS_DIR)/test_brightness.c $(STUBS_SRC) $(PTH_SRC) $(UNITY_SRC) | $(BUILD_DIR)
@@ -138,6 +159,9 @@ $(BUILD_DIR)/test_uart_hal_errors: $(TESTS_DIR)/test_uart_hal_errors.c $(STUBS_S
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_app_init_order: $(TESTS_DIR)/test_app_init_order.c $(STUBS_SRC) $(REPO_ROOT)/Services/app.c $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_set_thresholds: $(TESTS_DIR)/test_set_thresholds.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 clean:

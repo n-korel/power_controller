@@ -22,6 +22,7 @@ static uint8_t  mock_safe_state_call_count;
 
 uint16_t adc_get_voltage_mv(uint8_t idx) { return (idx < 4) ? mock_voltage_mv[idx] : 0; }
 int16_t  adc_get_current_ma(uint8_t idx) { return (idx < 5) ? mock_current_ma[idx] : 0; }
+uint8_t  adc_service_consume_new_sample(void) { return 1; }
 uint8_t  input_get_pgood(void)           { return mock_pgood; }
 uint8_t  input_get_faultz(void)          { return mock_faultz; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
@@ -171,6 +172,23 @@ void test_current_fault_after_5_consecutive(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_LCD);
 }
 
+void test_audio_current_fault_after_5_consecutive(void)
+{
+    mock_power_state   = DOM_AUDIO;
+    mock_current_ma[3] = (int16_t)THRESH_I_AUDIO_LR_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_AUDIO);
+        TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+    }
+    fault_manager_process();
+
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+}
+
 void test_faultz_active_low_confirms_after_5(void)
 {
     mock_power_state = DOM_AUDIO;
@@ -235,6 +253,41 @@ void test_reset_fault_does_not_reenable_domains(void)
     fault_clear_flags();
 
     TEST_ASSERT_EQUAL_UINT8(call_count_before, mock_force_off_call_count);
+}
+
+void test_fault_clear_flags_resets_consecutive_requires_full_reconfirm(void)
+{
+    /* fault_clear_flags() zeroes v_consec[]; a new fault needs a full
+     * FAULT_CONFIRM_COUNT cycle — partial credit from before clear does not count. */
+    mock_power_state   = DOM_SCALER;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V5_RANGE);
+    }
+
+    fault_clear_flags();
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_V5_RANGE);
+    }
+    fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
+}
+
+void test_pgood_loss_not_latched_when_power_off(void)
+{
+    mock_pgood       = 0;
+    mock_power_state = 0;
+
+    for (uint8_t i = 0; i < 50; i++) {
+        fault_manager_process();
+    }
+
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_PGOOD_LOST);
 }
 
 void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(void)
@@ -517,6 +570,29 @@ void test_current_only_checked_for_active_domain(void)
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_LCD);
 }
 
+/* ===== Ghost fault prevention (pstate re-read in fault_manager_process) ===== */
+
+void test_v5_fault_same_cycle_no_ghost_lcd_bl_current_fault(void)
+{
+    /* fault_manager.c re-reads pstate before each block because apply_fault_policy
+     * -> power_safe_state() clears power mid-run. Without re-read, stale pstate
+     * would latch FAULT_LCD/FAULT_BACKLIGHT when mock currents exceed threshold
+     * even though rails are already off. Rules 7.1: one ghost flag is permanent. */
+    mock_power_state   = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    mock_voltage_mv[2] = THRESH_V5_MAX + 1;
+    mock_current_ma[0] = (int16_t)THRESH_I_LCD_MAX + 1;
+    mock_current_ma[1] = (int16_t)THRESH_I_BL_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) {
+        fault_manager_process();
+    }
+
+    uint16_t flags = fault_get_flags();
+    TEST_ASSERT_TRUE(flags & FAULT_V5_RANGE);
+    TEST_ASSERT_EQUAL_HEX16(0, flags & (FAULT_LCD | FAULT_BACKLIGHT));
+    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -532,11 +608,14 @@ int main(void)
     RUN_TEST(test_voltage_fault_reset_by_normal_reading);
 #endif
     RUN_TEST(test_current_fault_after_5_consecutive);
+    RUN_TEST(test_audio_current_fault_after_5_consecutive);
     RUN_TEST(test_faultz_active_low_confirms_after_5);
     RUN_TEST(test_pgood_loss_confirms_after_5);
     RUN_TEST(test_fault_is_latched);
     RUN_TEST(test_reset_fault_clears_all_flags);
     RUN_TEST(test_reset_fault_does_not_reenable_domains);
+    RUN_TEST(test_fault_clear_flags_resets_consecutive_requires_full_reconfirm);
+    RUN_TEST(test_pgood_loss_not_latched_when_power_off);
     RUN_TEST(test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation);
     RUN_TEST(test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal);
     RUN_TEST(test_fault_scaler_enters_safe_state);
@@ -560,6 +639,7 @@ int main(void)
     RUN_TEST(test_current_at_and_below_threshold_no_fault);
     RUN_TEST(test_voltage_not_checked_when_all_off);
     RUN_TEST(test_current_only_checked_for_active_domain);
+    RUN_TEST(test_v5_fault_same_cycle_no_ghost_lcd_bl_current_fault);
 #if (ENABLE_V24_FAULT_CHECK != 0U)
     RUN_TEST(test_voltage_threshold_boundaries_at_min_and_max_do_not_fault);
 #endif

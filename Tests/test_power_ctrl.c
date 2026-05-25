@@ -7,7 +7,7 @@
  *   - Sequencer-busy rejection
  *   - Simple domains (ETH/TOUCH) direct control
  *   - Audio → audio SM startup
- *   - SCALER/LCD OFF → full shutdown sequence
+ *   - SCALER/LCD OFF → full shutdown sequence (incl. §24 with BACKLIGHT ON)
  */
 #include "unity.h"
 #include "config.h"
@@ -292,6 +292,19 @@ void test_scaler_off_starts_full_down_sequence(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
 }
 
+void test_scaler_off_with_backlight_on_starts_full_down_sequence(void)
+{
+    /* Rules §24: SCALER/LCD OFF while BACKLIGHT is ON must not be rejected;
+     * must start full DN sequencing (not confused with §23 BL-ON guard). */
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    dseq = DSEQ_IDLE;
+
+    uint8_t r = power_ctrl_request(DOM_SCALER, 0);
+    TEST_ASSERT_EQUAL_UINT8(0, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
+    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+}
+
 void test_bl_off_starts_bl_only_shutdown(void)
 {
     power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
@@ -378,6 +391,7 @@ int main(void)
     RUN_TEST(test_display_up_rejected_when_pgood_low_lcd_on_with_scaler_already_on);
     RUN_TEST(test_display_up_rejected_when_pgood_low_backlight_on_with_scaler_lcd_on);
     RUN_TEST(test_scaler_off_starts_full_down_sequence);
+    RUN_TEST(test_scaler_off_with_backlight_on_starts_full_down_sequence);
     RUN_TEST(test_bl_off_starts_bl_only_shutdown);
     RUN_TEST(test_audio_on_starts_audio_sequence);
     RUN_TEST(test_audio_off_starts_mute_first);
