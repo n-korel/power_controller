@@ -41,7 +41,7 @@ TESTS = test_crc test_adc_conversion test_protocol_parser \
         test_power_force_off_domains test_audio_sequence test_audio_ctrl_edge_cases \
         test_sus_s3 test_bridge_reset \
         test_flash_cal test_bootloader test_bootloader_check test_brightness \
-        test_startup_sm test_main_loop_order test_uart_hal_errors \
+        test_startup_sm test_main_loop_order test_uart_hal_errors test_uart_bootloader_ack \
         test_app_init_order test_set_thresholds
 
 TEST_BINS = $(addprefix $(BUILD_DIR)/, $(TESTS))
@@ -156,6 +156,9 @@ $(BUILD_DIR)/test_main_loop_order: $(TESTS_DIR)/test_main_loop_order.c $(STUBS_S
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_uart_hal_errors: $(TESTS_DIR)/test_uart_hal_errors.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_uart_bootloader_ack: $(TESTS_DIR)/test_uart_bootloader_ack.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_app_init_order: $(TESTS_DIR)/test_app_init_order.c $(STUBS_SRC) $(REPO_ROOT)/Services/app.c $(UNITY_SRC) | $(BUILD_DIR)

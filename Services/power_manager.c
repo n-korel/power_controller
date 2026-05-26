@@ -770,7 +770,9 @@ static void sseq_process(void)
 
     if (input_get_pgood()) {
         sseq = STARTUP_IDLE;
-        power_auto_startup();
+        if (power_state == 0U && dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
+            power_auto_startup();
+        }
     } else if ((systick_ms - sseq_timer) >= PGOOD_TIMEOUT_MS) {
         fault_set_flag(FAULT_PGOOD_LOST);
         /* fault_set_flag() -> apply_fault_policy() -> power_safe_state()

@@ -59,8 +59,8 @@ wait_get_status_clean() {
 periph_log_status() {
   local hex=$1
   local tag=${2:-status}
-  log_info "--- GET_STATUS (${tag}) ---"
-  parse_get_status_hex "$hex" || true
+  log_info "--- GET_STATUS (${tag}) ---" >&2
+  parse_get_status_hex "$hex" >&2 || true
 }
 
 periph_currents_near_zero() {
@@ -129,16 +129,19 @@ periph_display_scaler_lcd_on() {
   cmd_reset_fault >/dev/null 2>&1 || true
   sleep 0.05
   gs="$(cmd_get_status 2>/dev/null)" || true
-  if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x03 0 && expect_fault_flags "$gs" "0x0000"; then
-    log_info "SCALER+LCD already on"
+  # Явно исключаем «хвосты» доменов: при state=0x4B здесь уже true для бит 0–1 —
+  # без clear-mask тест ошибочно думает, что включены только SCALER+LCD.
+  if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" \
+    && expect_fault_flags "$gs" "0x0000"; then
+    log_info "SCALER+LCD already on" >&2
     printf '%s' "$gs"
     return 0
   fi
-  log_info "POWER_CTRL SCALER+LCD ON (mask=0x0003 value=0x0003)"
+  log_info "POWER_CTRL SCALER+LCD ON (mask=0x0003 value=0x0003)" >&2
   hex="$(cmd_power_ctrl 0x0003 0x0003)" || return 1
   expect_ack_status "$hex" 0 || return 1
   sleep "${SEQ_ON_WAIT_SEC:-2.0}"
-  if ! gs="$(wait_get_status_state 0x03 0)"; then
+  if ! gs="$(wait_get_status_state 0x03 "${PERIPH_PREP_NONDISPLAY_MASK_HEX}")"; then
     gs="$(cmd_get_status 2>/dev/null)" || gs=""
     if [[ -n "$gs" ]]; then
       periph_log_status "$gs" "SCALER+LCD ON failed"
@@ -155,23 +158,50 @@ periph_display_scaler_lcd_on() {
 }
 
 periph_display_backlight_on() {
-  local hex gs
+  local hex gs attempt ack_status
   cmd_reset_fault >/dev/null 2>&1 || true
   sleep 0.05
   gs="$(cmd_get_status 2>/dev/null)" || true
   if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x07 0 && expect_fault_flags "$gs" "0x0000"; then
-    log_info "BACKLIGHT already on"
+    log_info "BACKLIGHT already on" >&2
     printf '%s' "$gs"
     return 0
   fi
-  log_info "POWER_CTRL BACKLIGHT ON (mask=0x0004 value=0x0004)"
-  hex="$(cmd_power_ctrl 0x0004 0x0004)" || return 1
-  expect_ack_status "$hex" 0 || return 1
-  sleep "${SEQ_BL_WAIT_SEC:-0.5}"
-  gs="$(wait_get_status_state 0x07 0)" || return 1
-  parse_get_status_hex "$gs"
-  expect_fault_flags "$gs" "0x0000" || return 1
-  printf '%s' "$gs"
+  for attempt in 1 2; do
+    # После fault_policy state может быть 0x00: перед BACKLIGHT поднимаем SCALER+LCD заново.
+    gs="$(periph_display_scaler_lcd_on)" || {
+      log_info "BACKLIGHT precondition failed: SCALER+LCD not ready (attempt ${attempt}/2)" >&2
+      continue
+    }
+    log_info "POWER_CTRL BACKLIGHT ON (mask=0x0004 value=0x0004), attempt ${attempt}/2" >&2
+    hex="$(cmd_power_ctrl 0x0004 0x0004)" || continue
+    ack_status="$(python3 - "$hex" <<'PY'
+import sys
+b = bytes.fromhex(sys.argv[1].replace(' ', ''))
+print(b[3] if len(b) >= 4 else 255)
+PY
+)"
+    if [[ "$ack_status" != "0" ]]; then
+      log_info "BACKLIGHT ON rejected: ACK status=${ack_status} (attempt ${attempt}/2)" >&2
+      sleep 0.15
+      continue
+    fi
+    sleep "${SEQ_BL_WAIT_SEC:-0.5}"
+    gs="$(wait_get_status_state 0x07 0)" || gs=""
+    if [[ -n "$gs" ]]; then
+      parse_get_status_hex "$gs" >&2 || true
+      if expect_fault_flags "$gs" "0x0000"; then
+        printf '%s' "$gs"
+        return 0
+      fi
+    fi
+    gs="$(cmd_get_status 2>/dev/null)" || gs=""
+    if [[ -n "$gs" ]]; then
+      periph_log_status "$gs" "BACKLIGHT ON attempt ${attempt} failed"
+    fi
+    sleep 0.1
+  done
+  return 1
 }
 
 expect_rails_in_range() {

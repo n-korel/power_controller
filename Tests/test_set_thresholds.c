@@ -162,24 +162,6 @@ void test_set_thresholds_rejects_current_mx_above_int16_max(void)
     TEST_ASSERT_EQUAL_UINT8(0, mock_thresh_count);
 }
 
-void test_set_thresholds_accepts_current_mx_at_int16_max(void)
-{
-    uint16_t mask = (1U << 8);
-    uint16_t mx = (uint16_t)INT16_MAX;
-    uint8_t data[8];
-    uint8_t pos = 0;
-    append_u16(data, &pos, mask);
-    append_u16(data, &pos, mx);
-
-    dispatch_set_thresholds(data, pos);
-
-    TEST_ASSERT_EQUAL_HEX8(0x00, ack_status());
-    TEST_ASSERT_EQUAL_UINT8(1, mock_thresh_count);
-    TEST_ASSERT_EQUAL_UINT8(4, mock_thresh[0].idx);
-    TEST_ASSERT_EQUAL_UINT16(0, mock_thresh[0].min_val);
-    TEST_ASSERT_EQUAL_UINT16(mx, mock_thresh[0].max_val);
-}
-
 /* ===== Voltage min < max ===== */
 
 void test_set_thresholds_rejects_voltage_min_ge_max(void)
@@ -359,13 +341,58 @@ void test_set_thresholds_multiple_current_bits(void)
     TEST_ASSERT_EQUAL_UINT16(THRESH_I_BL_MAX, mock_thresh[1].max_val);
 }
 
+void test_set_thresholds_all_five_current_channels(void)
+{
+    uint16_t mask = (1U << 8) | (1U << 9) | (1U << 10) | (1U << 11) | (1U << 12);
+    uint8_t data[32];
+    uint8_t pos = 0;
+    append_u16(data, &pos, mask);
+    append_u16(data, &pos, THRESH_I_LCD_MAX);
+    append_u16(data, &pos, THRESH_I_BL_MAX);
+    append_u16(data, &pos, THRESH_I_SCALER_MAX);
+    append_u16(data, &pos, THRESH_I_AUDIO_LR_MAX);
+    append_u16(data, &pos, THRESH_I_AUDIO_LR_MAX);
+
+    dispatch_set_thresholds(data, pos);
+
+    TEST_ASSERT_EQUAL_HEX8(0x00, ack_status());
+    TEST_ASSERT_EQUAL_UINT8(5, mock_thresh_count);
+    TEST_ASSERT_EQUAL_UINT8(4, mock_thresh[0].idx);
+    TEST_ASSERT_EQUAL_UINT16(THRESH_I_LCD_MAX, mock_thresh[0].max_val);
+    TEST_ASSERT_EQUAL_UINT8(5, mock_thresh[1].idx);
+    TEST_ASSERT_EQUAL_UINT16(THRESH_I_BL_MAX, mock_thresh[1].max_val);
+    TEST_ASSERT_EQUAL_UINT8(6, mock_thresh[2].idx);
+    TEST_ASSERT_EQUAL_UINT16(THRESH_I_SCALER_MAX, mock_thresh[2].max_val);
+    TEST_ASSERT_EQUAL_UINT8(7, mock_thresh[3].idx);
+    TEST_ASSERT_EQUAL_UINT16(THRESH_I_AUDIO_LR_MAX, mock_thresh[3].max_val);
+    TEST_ASSERT_EQUAL_UINT8(8, mock_thresh[4].idx);
+    TEST_ASSERT_EQUAL_UINT16(THRESH_I_AUDIO_LR_MAX, mock_thresh[4].max_val);
+}
+
+void test_set_thresholds_current_max_32767_accepted(void)
+{
+    uint16_t mask = (1U << 8);
+    uint16_t mx = 32767U;
+    uint8_t data[8];
+    uint8_t pos = 0;
+    append_u16(data, &pos, mask);
+    append_u16(data, &pos, mx);
+
+    dispatch_set_thresholds(data, pos);
+
+    TEST_ASSERT_EQUAL_HEX8(0x00, ack_status());
+    TEST_ASSERT_EQUAL_UINT8(1, mock_thresh_count);
+    TEST_ASSERT_EQUAL_UINT8(4, mock_thresh[0].idx);
+    TEST_ASSERT_EQUAL_UINT16(0, mock_thresh[0].min_val);
+    TEST_ASSERT_EQUAL_UINT16(mx, mock_thresh[0].max_val);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_set_thresholds_zero_mask_is_no_op);
     RUN_TEST(test_set_thresholds_rejects_current_mx_zero);
     RUN_TEST(test_set_thresholds_rejects_current_mx_above_int16_max);
-    RUN_TEST(test_set_thresholds_accepts_current_mx_at_int16_max);
     RUN_TEST(test_set_thresholds_rejects_voltage_min_ge_max);
     RUN_TEST(test_set_thresholds_rejects_truncated_voltage_pair);
     RUN_TEST(test_set_thresholds_rejects_extra_bytes_after_valid_payload);
@@ -376,5 +403,7 @@ int main(void)
     RUN_TEST(test_set_thresholds_mixed_voltage_and_current_mask);
     RUN_TEST(test_set_thresholds_multiple_voltage_bits_in_bit_order);
     RUN_TEST(test_set_thresholds_multiple_current_bits);
+    RUN_TEST(test_set_thresholds_all_five_current_channels);
+    RUN_TEST(test_set_thresholds_current_max_32767_accepted);
     return UNITY_END();
 }

@@ -131,6 +131,25 @@ void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
     TEST_ASSERT_EQUAL_UINT8(0, amp_active);
 }
 
+void test_pgood_high_does_not_override_nonzero_runtime_state(void)
+{
+    /* Если хост уже начал вручную управлять доменами, отложенный auto-startup
+     * не должен перетирать текущее состояние. */
+    power_state = DOM_SCALER | DOM_LCD;
+    dseq = DSEQ_IDLE;
+    aseq = ASEQ_IDLE;
+    mock_pgood = 1;
+    power_startup_begin();
+
+    tick_ms(1);
+
+    TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
+}
+
 void test_pgood_high_full_up_completes_without_backlight(void)
 {
     mock_pgood = 1;
@@ -251,6 +270,7 @@ int main(void)
     RUN_TEST(test_startup_begin_is_blocked_while_fault_is_latched);
     RUN_TEST(test_startup_begin_second_call_restarts_wait_timer);
     RUN_TEST(test_pgood_high_triggers_auto_startup_and_returns_idle);
+    RUN_TEST(test_pgood_high_does_not_override_nonzero_runtime_state);
     RUN_TEST(test_pgood_high_full_up_completes_without_backlight);
     RUN_TEST(test_pgood_low_below_timeout_stays_waiting);
     RUN_TEST(test_pgood_high_on_last_ms_still_triggers_auto_startup);
