@@ -45,6 +45,7 @@ typedef enum {
 static dseq_state_t dseq;
 static uint32_t     dseq_timer;
 static uint8_t      dseq_up_with_bl; /* start BL during UP? */
+static uint8_t      auto_startup_pending_aux; /* TOUCH+AUDIO after UP_DONE (§6.5) */
 
 /* ===== Audio SM (Rules 9) ===== */
 typedef enum {
@@ -83,6 +84,8 @@ typedef enum {
 
 static sseq_state_t sseq;
 static uint32_t     sseq_timer;
+/* После первого auto-startup (или любого host POWER_CTRL) не повторять §6.5. */
+static uint8_t      auto_startup_done;
 
 /* ===== SUS_S3# auto-start Linux (Rules 8) ===== */
 static uint32_t sus_low_since;
@@ -177,6 +180,16 @@ void power_manager_init(void)
     sus_cooldown_ts   = 0;
     sseq              = STARTUP_IDLE;
     sseq_timer        = 0;
+    auto_startup_done         = 0;
+    auto_startup_pending_aux  = 0;
+#if !defined(UNIT_TEST)
+    /* После IWDG reset RAM обнуляется: без этого снова §6.5 auto-start → state=0x4B
+     * сразу после host POWER_CTRL (типично BACKLIGHT ON на стенде). */
+    if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
+        auto_startup_done = 1;
+    }
+    __HAL_RCC_CLEAR_RESET_FLAGS();
+#endif
 }
 
 void power_startup_begin(void)
@@ -227,10 +240,11 @@ void power_safe_state(void)
 
     power_state    = 0;
     brightness_pwm = 0;
-    dseq           = DSEQ_IDLE;
-    aseq           = ASEQ_IDLE;
-    sseq           = STARTUP_IDLE;
-    amp_active     = 0;
+    dseq                     = DSEQ_IDLE;
+    aseq                     = ASEQ_IDLE;
+    sseq                     = STARTUP_IDLE;
+    auto_startup_pending_aux = 0;
+    amp_active               = 0;
     bridge_rst_active = 0;
     sus_low_tracking  = 0;
     sus_low_since     = 0;
@@ -366,6 +380,13 @@ static void dseq_process(void)
     }
 
     case DSEQ_UP_DONE:
+        if (auto_startup_pending_aux) {
+            gpio_domain_set(DOM_TOUCH, 1);
+            power_state |= DOM_TOUCH;
+            gpio_domain_set(DOM_AUDIO, 1);
+            power_state |= DOM_AUDIO;
+            auto_startup_pending_aux = 0;
+        }
         dseq = DSEQ_IDLE;
         break;
 
@@ -419,6 +440,7 @@ static void dseq_process(void)
         break;
 
     case DSEQ_DN_DONE:
+        auto_startup_pending_aux = 0;
         dseq = DSEQ_IDLE;
         break;
 
@@ -600,6 +622,9 @@ void power_reset_bridge(void)
 
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
+    /* Host POWER_CTRL overrides §6.5 pending TOUCH/AUDIO at next UP_DONE. */
+    auto_startup_pending_aux = 0;
+
     /* Reject any unknown bits in mask/value (Rules §4.5 / invariant list §11: domain bits 0..6 only). */
     const uint16_t valid = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
                                       DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
@@ -716,6 +741,7 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         dseq = (dseq_state_t)next_dseq;
     }
 
+    auto_startup_done = 1;
     return 0;
 }
 
@@ -753,14 +779,10 @@ static void power_auto_startup(void)
      * DOM_AUDIO bit mirrors POWER_AUDIO=1; SDZ=0/MUTE=1 are kept from init,
      * and amp_active stays 0 so POWER_CTRL AUDIO=ON from Q7 runs only the
      * partial SDZ->MUTE tail of ASEQ (Rules §9). */
-    dseq_up_with_bl = 0;
-    dseq = DSEQ_UP_SCALER_ON;
-
-    gpio_domain_set(DOM_TOUCH, 1);
-    power_state |= DOM_TOUCH;
-
-    gpio_domain_set(DOM_AUDIO, 1);
-    power_state |= DOM_AUDIO;
+    dseq_up_with_bl            = 0;
+    auto_startup_pending_aux   = 1;
+    dseq                       = DSEQ_UP_SCALER_ON;
+    auto_startup_done          = 1;
 }
 
 /* ===== Startup SM (Rules 6.5): non-blocking PGOOD wait + auto-start ===== */
@@ -770,7 +792,8 @@ static void sseq_process(void)
 
     if (input_get_pgood()) {
         sseq = STARTUP_IDLE;
-        if (power_state == 0U && dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
+        if (!auto_startup_done &&
+            power_state == 0U && dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
             power_auto_startup();
         }
     } else if ((systick_ms - sseq_timer) >= PGOOD_TIMEOUT_MS) {

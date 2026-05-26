@@ -40,6 +40,41 @@ void test_init_leaves_startup_sm_idle(void)
     TEST_ASSERT_EQUAL_UINT32(0, sseq_timer);
 }
 
+void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
+{
+    mock_pgood = 1;
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
+
+    power_startup_begin();
+    tick_ms(1);
+    TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
+
+    /* Host all-off aborts §6.5 pending aux before a new UP. */
+    (void)power_ctrl_request(0x007f, 0x0000);
+    tick_ms(1500);
+    TEST_ASSERT_EQUAL_UINT8(0, auto_startup_pending_aux);
+
+    (void)power_ctrl_request(0x0003, 0x0003);
+    tick_ms(400);
+
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
+}
+
+void test_auto_startup_suppressed_when_already_done(void)
+{
+    /* После IWDG reset прошивка выставляет auto_startup_done=1 (см. power_manager_init). */
+    power_manager_init();
+    auto_startup_done = 1;
+    mock_pgood = 1;
+    power_startup_begin();
+    tick_ms(1);
+
+    TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
+}
+
 void test_process_without_begin_is_noop(void)
 {
     /* Even if PGOOD is HIGH and a lot of time passes, without explicit
@@ -105,11 +140,12 @@ void test_startup_begin_second_call_restarts_wait_timer(void)
 void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
 {
     mock_pgood = 1;
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
     power_startup_begin();
 
-    /* One main-loop tick is enough for sseq_process() to see PGOOD=HIGH,
-     * call power_auto_startup() and hand control off to dseq. */
-    tick_ms(1);
+    /* Auto-startup starts display UP; TOUCH/AUDIO come up at DSEQ_UP_DONE. */
+    tick_ms(400);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     /* Auto-startup per Rules §6.5 / README §13.6: SCALER UP sequence
@@ -194,7 +230,9 @@ void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
     TEST_ASSERT_EQUAL_INT(STARTUP_WAIT_PGOOD, sseq);
 
     mock_pgood = 1;
-    tick_ms(1);
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
+    tick_ms(400);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_TRUE(power_state & DOM_TOUCH);
@@ -265,6 +303,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_leaves_startup_sm_idle);
+    RUN_TEST(test_host_power_ctrl_clears_pending_aux_at_up_done);
+    RUN_TEST(test_auto_startup_suppressed_when_already_done);
     RUN_TEST(test_process_without_begin_is_noop);
     RUN_TEST(test_startup_begin_arms_wait_and_captures_timer);
     RUN_TEST(test_startup_begin_is_blocked_while_fault_is_latched);

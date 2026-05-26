@@ -18,7 +18,7 @@ ACK_FRAME_LEN=6
 
 # Секвенсинг дисплея: шаги 1–6 ~500–700 мс; запас на verify + опрос
 SEQ_ON_WAIT_SEC="${SEQ_ON_WAIT_SEC:-2.0}"
-SEQ_BL_WAIT_SEC="${SEQ_BL_WAIT_SEC:-0.6}"
+SEQ_BL_WAIT_SEC="${SEQ_BL_WAIT_SEC:-2.0}"
 SEQ_DN_WAIT_SEC="${SEQ_DN_WAIT_SEC:-1.2}"
 AUDIO_SEQ_WAIT_SEC="${AUDIO_SEQ_WAIT_SEC:-0.25}"
 

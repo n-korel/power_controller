@@ -116,12 +116,50 @@ periph_display_all_off() {
 
 # Все домены (включая TOUCH/AUDIO после auto-startup при PGOOD)
 periph_all_domains_off() {
-  local hex
+  local hex gs
   log_info "all domains off: mask=0x007F value=0"
   hex="$(cmd_power_ctrl 0x007f 0x0000)" || return 1
   expect_ack_status "$hex" 0 || return 1
   sleep "${SEQ_DN_WAIT_SEC:-1.0}"
-  wait_get_status_clean "${STATE_POLL_TRIES:-40}" >/dev/null
+  if ! gs="$(wait_get_status_clean "${STATE_POLL_TRIES:-40}")"; then
+    log_fail "all domains off: timeout waiting state=0 fault=0"
+    return 1
+  fi
+  if ! expect_state_bits "$gs" 0x00 0; then
+    periph_log_status "$gs" "all domains off"
+    log_fail "all domains off: state!=0x00 (e.g. 0x4B auto-startup tail — retry RESET_FAULT)"
+    return 1
+  fi
+}
+
+# Снять AUDIO|TOUCH|ETH, не трогая SCALER|LCD|BL (если остался хвост 0x4B)
+# state=0x4B (SCALER|LCD|AUDIO|TOUCH) — типичный хвост §6.5 или IWDG reset
+periph_state_is_autostart_tail() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
+if len(raw) != 31:
+    sys.exit(1)
+sys.exit(0 if raw[25] == 0x4B else 1)
+PY
+}
+
+periph_strip_nondisplay_domains() {
+  local hex gs
+  gs="$(cmd_get_status 2>/dev/null)" || return 1
+  if expect_state_bits "$gs" 0x00 "$PERIPH_PREP_NONDISPLAY_MASK_HEX"; then
+    return 0
+  fi
+  log_info "clear non-display domains (mask=0x78 value=0)" >&2
+  hex="$(cmd_power_ctrl 0x0078 0x0000)" || return 1
+  expect_ack_status "$hex" 0 || return 1
+  sleep "${AUDIO_SEQ_WAIT_SEC:-0.25}"
+  if ! gs="$(wait_get_status_state 0x00 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" 20)"; then
+    gs="$(cmd_get_status 2>/dev/null)" || gs=""
+    [[ -n "$gs" ]] && periph_log_status "$gs" "strip non-display failed"
+    return 1
+  fi
 }
 
 periph_display_scaler_lcd_on() {
@@ -161,18 +199,29 @@ periph_display_backlight_on() {
   local hex gs attempt ack_status
   cmd_reset_fault >/dev/null 2>&1 || true
   sleep 0.05
+  periph_strip_nondisplay_domains || return 1
   gs="$(cmd_get_status 2>/dev/null)" || true
-  if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x07 0 && expect_fault_flags "$gs" "0x0000"; then
+  if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x07 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" \
+    && expect_fault_flags "$gs" "0x0000"; then
     log_info "BACKLIGHT already on" >&2
     printf '%s' "$gs"
     return 0
   fi
   for attempt in 1 2; do
+    cmd_reset_fault >/dev/null 2>&1 || true
+    sleep 0.05
     # После fault_policy state может быть 0x00: перед BACKLIGHT поднимаем SCALER+LCD заново.
     gs="$(periph_display_scaler_lcd_on)" || {
       log_info "BACKLIGHT precondition failed: SCALER+LCD not ready (attempt ${attempt}/2)" >&2
       continue
     }
+    periph_strip_nondisplay_domains || continue
+    gs="$(cmd_get_status 2>/dev/null)" || gs=""
+    if [[ -n "$gs" ]] && ! expect_state_bits "$gs" 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX"; then
+      log_info "pre-BL: need clean SCALER+LCD (state=0x03), got unexpected state" >&2
+      periph_log_status "$gs" "pre-BL state"
+      continue
+    fi
     log_info "POWER_CTRL BACKLIGHT ON (mask=0x0004 value=0x0004), attempt ${attempt}/2" >&2
     hex="$(cmd_power_ctrl 0x0004 0x0004)" || continue
     ack_status="$(python3 - "$hex" <<'PY'
@@ -186,8 +235,8 @@ PY
       sleep 0.15
       continue
     fi
-    sleep "${SEQ_BL_WAIT_SEC:-0.5}"
-    gs="$(wait_get_status_state 0x07 0)" || gs=""
+    sleep "${SEQ_BL_WAIT_SEC:-1.0}"
+    gs="$(wait_get_status_state 0x07 "$PERIPH_PREP_NONDISPLAY_MASK_HEX")" || gs=""
     if [[ -n "$gs" ]]; then
       parse_get_status_hex "$gs" >&2 || true
       if expect_fault_flags "$gs" "0x0000"; then
@@ -198,8 +247,30 @@ PY
     gs="$(cmd_get_status 2>/dev/null)" || gs=""
     if [[ -n "$gs" ]]; then
       periph_log_status "$gs" "BACKLIGHT ON attempt ${attempt} failed"
+      if periph_state_is_autostart_tail "$gs"; then
+        log_info "state=0x4B: auto-startup tail or MCU reset — full re-prepare" >&2
+        periph_all_domains_off || continue
+        sleep 0.2
+        cmd_reset_fault >/dev/null 2>&1 || true
+        periph_prepare_zero_load || continue
+      fi
     fi
     sleep 0.1
+  done
+  return 1
+}
+
+cmd_set_thresholds_retry() {
+  local mask=$1
+  shift
+  local attempt hex
+  for attempt in 1 2 3; do
+    uart_drain_fd
+    if hex="$(cmd_set_thresholds "$mask" "$@")"; then
+      printf '%s' "$hex"
+      return 0
+    fi
+    sleep 0.2
   done
   return 1
 }
@@ -270,7 +341,7 @@ PY
 fault_set_i_lcd_max_ma() {
   local ma=$1
   local lo=$((ma & 0xff)) hi=$(((ma >> 8) & 0xff))
-  cmd_set_thresholds 0x0100 "$lo" "$hi"
+  cmd_set_thresholds_retry 0x0100 "$lo" "$hi"
 }
 
 fault_restore_i_lcd_max() {
