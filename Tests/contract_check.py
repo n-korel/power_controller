@@ -285,17 +285,65 @@ def list_call_statements(block: str) -> list[str]:
     return out
 
 
+def parse_ioc_iwdg(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in ("Prescaler", "Reload", "Window"):
+        m = re.search(rf"^\s*IWDG\.{key}\s*=\s*(.+?)\s*$", text, re.M)
+        if not m:
+            die(f"POWER_Controller.ioc: missing IWDG.{key}")
+        out[key] = m.group(1).strip()
+    return out
+
+
+def parse_iwdg_c_init(text: str) -> dict[str, str]:
+    m = re.search(
+        r"^\s*void\s+MX_IWDG_Init\s*\(\s*void\s*\)\s*\{(?P<body>[\s\S]*?)^\s*\}\s*$",
+        text,
+        re.M,
+    )
+    if not m:
+        die("Core/Src/iwdg.c: cannot locate MX_IWDG_Init()")
+    body = m.group("body")
+
+    out: dict[str, str] = {}
+    for key in ("Prescaler", "Reload", "Window"):
+        mm = re.search(rf"hiwdg\.Init\.{key}\s*=\s*(.+?)\s*;", body)
+        if not mm:
+            die(f"Core/Src/iwdg.c: missing hiwdg.Init.{key}")
+        out[key] = mm.group(1).strip()
+    return out
+
+
+def parse_iwdg_prescaler_div(value: str) -> int:
+    mapping = {
+        "IWDG_PRESCALER_4": 4,
+        "IWDG_PRESCALER_8": 8,
+        "IWDG_PRESCALER_16": 16,
+        "IWDG_PRESCALER_32": 32,
+        "IWDG_PRESCALER_64": 64,
+        "IWDG_PRESCALER_128": 128,
+        "IWDG_PRESCALER_256": 256,
+    }
+    if value not in mapping:
+        die(f"IWDG prescaler value is not supported: {value!r}")
+    return mapping[value]
+
+
 def main() -> int:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     adc_yaml_path = os.path.join(repo_root, "contract", "adc_channels.yaml")
     proto_yaml_path = os.path.join(repo_root, "contract", "protocol.yaml")
     config_h_path = os.path.join(repo_root, "Config", "config.h")
+    ioc_path = os.path.join(repo_root, "POWER_Controller.ioc")
+    iwdg_c_path = os.path.join(repo_root, "Core", "Src", "iwdg.c")
     main_c_path = os.path.join(repo_root, "Core", "Src", "main.c")
     app_c_path = os.path.join(repo_root, "Services", "app.c")
 
     adc_yaml = read_text(adc_yaml_path)
     proto_yaml = read_text(proto_yaml_path)
     config_h = read_text(config_h_path)
+    ioc_text = read_text(ioc_path)
+    iwdg_c = read_text(iwdg_c_path)
     main_c = read_text(main_c_path)
     app_c = read_text(app_c_path)
 
@@ -399,6 +447,27 @@ def main() -> int:
             die(f"domain_bits: no DOM_* for {dom_name!r} in config.h")
         expected_mask = 1 << int(bitpos)
         assert_eq(f"DOM_{dom_name}", dom_map[dom_name], expected_mask)
+
+    # IWDG config sync contract (Rules invariant #5):
+    # peripheral configuration in generated code must match CubeMX .ioc.
+    ioc_iwdg = parse_ioc_iwdg(ioc_text)
+    c_iwdg = parse_iwdg_c_init(iwdg_c)
+    assert_eq("IWDG.Prescaler (.ioc vs iwdg.c)", c_iwdg["Prescaler"], ioc_iwdg["Prescaler"])
+    assert_eq("IWDG.Reload (.ioc vs iwdg.c)", c_iwdg["Reload"], ioc_iwdg["Reload"])
+    assert_eq("IWDG.Window (.ioc vs iwdg.c)", c_iwdg["Window"], ioc_iwdg["Window"])
+
+    # OTA safety guard:
+    # ROM UART bootloader does not feed IWDG, so timeout must cover full-image update.
+    lsi_hz = 40000
+    prescaler_div = parse_iwdg_prescaler_div(ioc_iwdg["Prescaler"])
+    try:
+        reload_ticks = int(ioc_iwdg["Reload"], 10)
+    except ValueError:
+        die(f"IWDG.Reload must be decimal integer, got: {ioc_iwdg['Reload']!r}")
+    timeout_s = reload_ticks / (lsi_hz / prescaler_div)
+    min_timeout_s = 20.0
+    if timeout_s < min_timeout_s:
+        die(f"IWDG timeout too short for OTA: {timeout_s:.2f}s < {min_timeout_s:.1f}s")
 
     # Runtime/implementation guards (Rules invariant #7, #48-#50)
     # - No HAL_Delay() in sequencing/state-machine modules

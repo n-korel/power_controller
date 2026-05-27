@@ -40,6 +40,26 @@ void test_init_leaves_startup_sm_idle(void)
     TEST_ASSERT_EQUAL_UINT32(0, sseq_timer);
 }
 
+void test_rejected_power_ctrl_preserves_pending_aux(void)
+{
+    mock_pgood = 1;
+    mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
+    mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
+
+    power_startup_begin();
+    tick_ms(1);
+    TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
+
+    /* Rejected while UP sequence is in flight — pending aux must survive. */
+    uint8_t r = power_ctrl_request(DOM_BACKLIGHT, DOM_BACKLIGHT);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
+
+    tick_ms(400);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_TOUCH | DOM_AUDIO, power_state);
+}
+
 void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
 {
     mock_pgood = 1;
@@ -50,12 +70,20 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     tick_ms(1);
     TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
 
-    /* Host all-off aborts §6.5 pending aux before a new UP. */
-    (void)power_ctrl_request(0x007f, 0x0000);
-    tick_ms(1500);
+    /* Applied host POWER_CTRL (no display mask) overrides §6.5 pending aux
+     * even while UP sequencing is still in flight. */
+    TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(DOM_TOUCH, 0));
     TEST_ASSERT_EQUAL_UINT8(0, auto_startup_pending_aux);
 
-    (void)power_ctrl_request(0x0003, 0x0003);
+    tick_ms(400);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
+
+    /* After full DN via host, SCALER+LCD bring-up must not resurrect TOUCH/AUDIO. */
+    TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(0x007f, 0x0000));
+    tick_ms(1500);
+
+    TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(0x0003, 0x0003));
     tick_ms(400);
 
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
@@ -303,6 +331,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_leaves_startup_sm_idle);
+    RUN_TEST(test_rejected_power_ctrl_preserves_pending_aux);
     RUN_TEST(test_host_power_ctrl_clears_pending_aux_at_up_done);
     RUN_TEST(test_auto_startup_suppressed_when_already_done);
     RUN_TEST(test_process_without_begin_is_noop);

@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 trap test_cleanup EXIT
 uart_open
+ensure_clean_state || die "failed to enter clean state before GET_STATUS"
 log_info "GET_STATUS on ${UART_DEVICE}"
 hex="$(cmd_get_status)" || die "no GET_STATUS response (31 bytes)"
 echo "$hex" | xxd -r -p | xxd

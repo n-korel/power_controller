@@ -50,17 +50,23 @@ chmod +x *.sh parse_get_status.py
 | `19_iwdg_stress.sh` | I.1 | 20× GET_STATUS (100 ms gap) |
 | `20_set_brightness_neg.sh` | — | SET_BRIGHTNESS bad LEN, pwm>1000 |
 | `21_power_ctrl_neg.sh` | — | POWER_CTRL bad LEN, unknown bits |
+| `22_calibrate_offset_neg_state.sh` | — | CALIBRATE_OFFSET rejected when `state!=0` |
 | `23_set_thresholds_neg.sh` | — | SET_THRESHOLDS invalid mask / min≥max / truncated |
 | `24_fault_v5_range.sh` | F.1 | SET_THRESHOLDS → FAULT_V5_RANGE |
 | `25_fault_v3v3_range.sh` | F.1 | SET_THRESHOLDS → FAULT_V3V3_RANGE |
 | `26_verify_rx_crc.sh` | — | CRC on PING and GET_STATUS responses |
+| `27_power_ctrl_idempotent.sh` | — | TOUCH ON repeated: `status=0`, state unchanged |
+| `28_set_thresholds_pos.sh` | — | Valid `SET_THRESHOLDS` (V12 + I_LCD) and restore defaults |
+| `29_reset_fault_no_autostart.sh` | — | Fault latch + RESET_FAULT: `state=0`, `fault=0` |
+| `30_power_ctrl_zero_mask.sh` | — | `POWER_CTRL mask=0,value=0` no-op, state unchanged |
+| `31_set_brightness_valid.sh` | — | `SET_BRIGHTNESS` 0/500/1000 accepted |
 
-Not in `make test-uart`: autostart (`27+`), bootloader (`stm32flash`), optional `#13`.
+Not in `make test-uart`: bootloader (`stm32flash`), optional `#13`.
 
 ## Not in bare-board run
 
 - Successful `POWER_CTRL` SCALER/LCD/BACKLIGHT (needs display)
-- `SET_BRIGHTNESS`, `BOOTLOADER_ENTER`, `CALIBRATE_OFFSET`
+- `BOOTLOADER_ENTER`, `CALIBRATE_OFFSET`
 - SUS_S3# / PWRBTN (needs Q7 or LA)
 
 `run_all_bare_board.sh`: `00_flush_port` → **preflight PING retries** (до ${BOOT_PING_RETRIES:-60}×, cold boot) → tests (`03_reset_fault` after `01_ping`, …). После optional **#13** снова `./03_reset_fault.sh`.

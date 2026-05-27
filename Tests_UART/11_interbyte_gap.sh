@@ -8,10 +8,10 @@ source "$SCRIPT_DIR/lib.sh"
 trap test_cleanup EXIT
 uart_open
 log_info "PING byte-by-byte, gap ${INTERBYTE_GAP_MS} ms"
-bytes=(02 01 00 15 03)
-for i in "${!bytes[@]}"; do
-  printf "\\x$(printf '%02x' "${bytes[$i]}")" >&3
-  if [[ "$i" -lt $((${#bytes[@]} - 1)) ]]; then
+bytes_hex=(02 01 00 15 03)
+for i in "${!bytes_hex[@]}"; do
+  printf "\\x${bytes_hex[$i]}" >&3
+  if [[ "$i" -lt $((${#bytes_hex[@]} - 1)) ]]; then
     sleep "$(python3 -c "print(${INTERBYTE_GAP_MS}/1000)")"
   fi
 done

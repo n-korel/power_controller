@@ -16,6 +16,11 @@ TESTS=(
   "07_audio_sequencing.sh"
   "08_display_shutdown.sh"
   "09_fault_lcd_current.sh"
+  "11_backlight_only_off.sh"
+  "12_all_at_once_up.sh"
+  "13_fault_recovery_display.sh"
+  "14_set_brightness_boundary.sh"
+  "15_display_resequence.sh"
   "10_sus_s3_manual.sh"
 )
 

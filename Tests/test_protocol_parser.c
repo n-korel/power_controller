@@ -24,6 +24,7 @@ static uint16_t mock_set_brightness_pwm;
 static uint8_t  mock_set_brightness_called;
 static uint8_t  mock_fault_clear_called;
 static uint8_t  mock_power_reset_bridge_called;
+static uint8_t  mock_power_reset_bridge_result;
 static uint8_t  mock_power_safe_state_called;
 static uint8_t  mock_bootloader_schedule_called;
 static uint8_t  mock_flash_cal_calibrate_result;
@@ -56,7 +57,11 @@ void     power_set_brightness(uint16_t p)
 }
 void     fault_clear_flags(void)         { mock_fault_clear_called = 1; }
 void     fault_set_flag(uint16_t flag)   { (void)flag; }
-void     power_reset_bridge(void)        { mock_power_reset_bridge_called = 1; }
+uint8_t  power_reset_bridge(void)
+{
+    mock_power_reset_bridge_called = 1;
+    return mock_power_reset_bridge_result;
+}
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
 {
     if (mock_thresh_count < 16) {
@@ -192,6 +197,7 @@ void setUp(void)
     mock_set_brightness_called = 0;
     mock_fault_clear_called       = 0;
     mock_power_reset_bridge_called = 0;
+    mock_power_reset_bridge_result  = 0;
     mock_power_safe_state_called   = 0;
     mock_bootloader_schedule_called = 0;
     mock_flash_cal_calibrate_result = 0;
@@ -768,6 +774,7 @@ void test_dispatch_reset_fault_clears_flags_and_returns_ack(void)
 
 void test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge(void)
 {
+    mock_power_reset_bridge_result = 0;
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_RESET_BRIDGE, NULL, 0);
     feed_bytes(pkt, n);
@@ -776,6 +783,19 @@ void test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge(void)
     TEST_ASSERT_EQUAL_UINT8(1, mock_power_reset_bridge_called);
     TEST_ASSERT_EQUAL_HEX8(CMD_RESET_BRIDGE, tx_buf[1]);
     TEST_ASSERT_EQUAL_HEX8(0x00,             tx_buf[3]);
+}
+
+void test_dispatch_reset_bridge_forwards_rejection_status(void)
+{
+    mock_power_reset_bridge_result = 1;
+    uint8_t pkt[8];
+    uint16_t n = build_packet(pkt, CMD_RESET_BRIDGE, NULL, 0);
+    feed_bytes(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_UINT8(1, mock_power_reset_bridge_called);
+    TEST_ASSERT_EQUAL_HEX8(CMD_RESET_BRIDGE, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x01,             tx_buf[3]);
 }
 
 void test_dispatch_calibrate_offset_forwards_result_code(void)
@@ -1037,6 +1057,7 @@ int main(void)
     RUN_TEST(test_dispatch_set_thresholds_rejects_extra_bytes);
     RUN_TEST(test_dispatch_reset_fault_clears_flags_and_returns_ack);
     RUN_TEST(test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge);
+    RUN_TEST(test_dispatch_reset_bridge_forwards_rejection_status);
     RUN_TEST(test_dispatch_calibrate_offset_forwards_result_code);
     RUN_TEST(test_dispatch_bootloader_enter_safe_state_acks_and_schedules);
     RUN_TEST(test_send_response_frame_layout);

@@ -93,6 +93,8 @@ uint8_t flash_cal_calibrate(void)
 {
     if (power_get_state() != 0)
         return 1;
+    if (!power_is_idle())
+        return 1;
 
     flash_cal_t cal;
     memset(&cal, 0, sizeof(cal));

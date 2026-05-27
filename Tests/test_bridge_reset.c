@@ -36,7 +36,7 @@ void test_reset_bridge_rejected_without_scaler_lcd(void)
 {
     power_state = 0;
 
-    power_reset_bridge();
+    TEST_ASSERT_EQUAL_UINT8(1, power_reset_bridge());
 
     TEST_ASSERT_EQUAL_UINT32(0,
         pth_gpio_write_count(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin));
@@ -47,7 +47,7 @@ void test_reset_bridge_rejected_with_scaler_only(void)
 {
     power_state = DOM_SCALER;
 
-    power_reset_bridge();
+    TEST_ASSERT_EQUAL_UINT8(1, power_reset_bridge());
 
     TEST_ASSERT_EQUAL_UINT32(0,
         pth_gpio_write_count(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin));
@@ -59,7 +59,7 @@ void test_reset_bridge_rejected_during_dseq(void)
     power_state = DOM_SCALER | DOM_LCD;
     dseq        = DSEQ_UP_WAIT_SCALER;
 
-    power_reset_bridge();
+    TEST_ASSERT_EQUAL_UINT8(1, power_reset_bridge());
 
     TEST_ASSERT_EQUAL_UINT32(0,
         pth_gpio_write_count(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin));
@@ -72,7 +72,7 @@ void test_reset_bridge_pulse_is_10ms(void)
 {
     power_state = DOM_SCALER | DOM_LCD;
 
-    power_reset_bridge();
+    TEST_ASSERT_EQUAL_UINT8(0, power_reset_bridge());
 
     /* Immediately: RST asserted LOW, pulse in progress */
     GPIO_PinState st;
@@ -103,11 +103,11 @@ void test_reset_bridge_ignored_if_already_active(void)
 {
     power_state = DOM_SCALER | DOM_LCD;
 
-    power_reset_bridge();
+    TEST_ASSERT_EQUAL_UINT8(0, power_reset_bridge());
     tick_ms(5);  /* mid-pulse */
     uint32_t timer_before = bridge_rst_timer;
 
-    power_reset_bridge();  /* second call, must be ignored */
+    TEST_ASSERT_EQUAL_UINT8(1, power_reset_bridge());  /* second call, must be ignored */
 
     TEST_ASSERT_EQUAL_UINT32(1,
         pth_gpio_write_count(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin));

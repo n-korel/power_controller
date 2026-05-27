@@ -297,7 +297,6 @@ static void dseq_process(void)
     /* === UP === */
     case DSEQ_UP_SCALER_ON:
         gpio_domain_set(DOM_SCALER, 1);
-        power_state |= DOM_SCALER;
         dseq_timer = now;
         dseq = DSEQ_UP_WAIT_SCALER;
         break;
@@ -312,6 +311,7 @@ static void dseq_process(void)
     case DSEQ_UP_VERIFY_SCALER: {
         uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_SCALER_POWER));
         if (vin_mv >= SEQ_VERIFY_SCALER_MV) {
+            power_state |= DOM_SCALER;
             dseq = DSEQ_UP_RST_RELEASE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
             fault_set_flag(FAULT_SEQ_ABORT | FAULT_SCALER);
@@ -332,7 +332,6 @@ static void dseq_process(void)
 
     case DSEQ_UP_LCD_ON:
         gpio_domain_set(DOM_LCD, 1);
-        power_state |= DOM_LCD;
         dseq_timer = now;
         dseq = DSEQ_UP_WAIT_LCD;
         break;
@@ -347,6 +346,7 @@ static void dseq_process(void)
     case DSEQ_UP_VERIFY_LCD: {
         uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_LCD_POWER));
         if (vin_mv >= SEQ_VERIFY_LCD_MV) {
+            power_state |= DOM_LCD;
             if (dseq_up_with_bl)
                 dseq = DSEQ_UP_BL_ON;
             else
@@ -359,7 +359,6 @@ static void dseq_process(void)
 
     case DSEQ_UP_BL_ON:
         gpio_domain_set(DOM_BACKLIGHT, 1);
-        power_state |= DOM_BACKLIGHT;
         HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, brightness_pwm);
         dseq_timer = now;
@@ -372,6 +371,7 @@ static void dseq_process(void)
          * SEQ_VERIFY_BL_MV=9000 is compared against the restored rail voltage. */
         uint32_t vin_mv = ADC_RAIL_MV_FROM_RAW(adc_get_raw_avg(ADC_IDX_BL_POWER));
         if (vin_mv >= SEQ_VERIFY_BL_MV) {
+            power_state |= DOM_BACKLIGHT;
             dseq = DSEQ_UP_DONE;
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
             fault_set_flag(FAULT_SEQ_ABORT | FAULT_BACKLIGHT);
@@ -394,7 +394,6 @@ static void dseq_process(void)
     case DSEQ_DN_PWM_ZERO:
         /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
-        brightness_pwm = 0;
         dseq_timer = now;
         dseq = DSEQ_DN_WAIT_PWM;
         break;
@@ -448,7 +447,6 @@ static void dseq_process(void)
     case DSEQ_BLOFF_PWM_ZERO:
         /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
-        brightness_pwm = 0;
         dseq_timer = now;
         dseq = DSEQ_BLOFF_WAIT;
         break;
@@ -599,6 +597,11 @@ uint8_t power_get_state(void)
     return power_state;
 }
 
+uint8_t power_is_idle(void)
+{
+    return (dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) ? 1 : 0;
+}
+
 void power_set_brightness(uint16_t pwm)
 {
     if (pwm > 1000) pwm = 1000;
@@ -609,22 +612,20 @@ void power_set_brightness(uint16_t pwm)
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, pwm);
 }
 
-void power_reset_bridge(void)
+uint8_t power_reset_bridge(void)
 {
-    if (!(power_state & DOM_SCALER) || !(power_state & DOM_LCD)) return;
+    if (!(power_state & DOM_SCALER) || !(power_state & DOM_LCD)) return 1;
     /* Do not interfere with active display sequencing or an in-flight pulse */
-    if (dseq != DSEQ_IDLE) return;
-    if (bridge_rst_active) return;
+    if (dseq != DSEQ_IDLE) return 1;
+    if (bridge_rst_active) return 1;
     HAL_GPIO_WritePin(RST_CH7511B_GPIO_Port, RST_CH7511B_Pin, GPIO_PIN_RESET);
     bridge_rst_active = 1;
     bridge_rst_timer  = systick_ms;
+    return 0;
 }
 
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
-    /* Host POWER_CTRL overrides §6.5 pending TOUCH/AUDIO at next UP_DONE. */
-    auto_startup_pending_aux = 0;
-
     /* Reject any unknown bits in mask/value (Rules §4.5 / invariant list §11: domain bits 0..6 only). */
     const uint16_t valid = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
                                       DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
@@ -698,14 +699,7 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         }
     }
 
-    /* Audio precheck: while audio sequencer is busy, AUDIO=ON cannot be
-     * accepted as completed immediately. Reject with status=1 so host does
-     * not treat the request as done while ASEQ is still in flight. */
-    if ((mask & DOM_AUDIO) && (value & DOM_AUDIO) && (aseq != ASEQ_IDLE)) {
-        return 1;
-    }
-
-    /* Simple domains (ETH1, ETH2, TOUCH) — direct control */
+    /* Simple domains (ETH1, ETH2, TOUCH) — direct control, independent of ASEQ. */
     static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
     for (uint8_t i = 0; i < 3; i++) {
         uint8_t dom = simple_doms[i];
@@ -721,10 +715,15 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
      *   OFF          (power_state=0, amp_active=0) -> full ON: POWER_AUDIO->SDZ->MUTE
      *   safe-on      (power_state=1, amp_active=0) -> partial ON: SDZ->MUTE only
      *                (entered by power_auto_startup per §6.5)
-     *   full-on      (power_state=1, amp_active=1) -> already active, no-op */
+     *   full-on      (power_state=1, amp_active=1) -> already active, no-op
+     * While ASEQ is busy, AUDIO=ON is deferred (status=1) without blocking other
+     * domains in the same mask. */
+    uint8_t audio_rejected = 0;
     if (mask & DOM_AUDIO) {
         if (value & DOM_AUDIO) {
-            if ((aseq == ASEQ_IDLE) && !amp_active) {
+            if (aseq != ASEQ_IDLE) {
+                audio_rejected = 1;
+            } else if (!amp_active) {
                 aseq = (power_state & DOM_AUDIO) ? ASEQ_ON_SDZ : ASEQ_ON_POWER;
             }
         } else {
@@ -741,8 +740,10 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         dseq = (dseq_state_t)next_dseq;
     }
 
+    /* Host POWER_CTRL overrides §6.5 pending TOUCH/AUDIO only when applied. */
+    auto_startup_pending_aux = 0;
     auto_startup_done = 1;
-    return 0;
+    return audio_rejected;
 }
 
 void power_force_off_domains(uint16_t domain_mask)

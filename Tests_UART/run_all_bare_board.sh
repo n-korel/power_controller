@@ -24,8 +24,14 @@ TESTS=(
   "16_telemetry_sanity.sh"
   "20_set_brightness_neg.sh"
   "21_power_ctrl_neg.sh"
+  "22_calibrate_offset_neg_state.sh"
   "23_set_thresholds_neg.sh"
   "26_verify_rx_crc.sh"
+  "27_power_ctrl_idempotent.sh"
+  "28_set_thresholds_pos.sh"
+  "29_reset_fault_no_autostart.sh"
+  "30_power_ctrl_zero_mask.sh"
+  "31_set_brightness_valid.sh"
   "19_iwdg_stress.sh"
   "17_fault_v12_range.sh"
   "24_fault_v5_range.sh"
@@ -79,6 +85,6 @@ done
 
 printf '=== Result: %d PASS, %d FAIL ===\n' "$pass" "$fail"
 printf 'Optional (no display, expect fault): 13_optional_power_ctrl_seq_fault.sh\n'
-printf 'Skipped on bare board: POWER_CTRL/BACKLIGHT/SET_BRIGHTNESS until display is connected\n'
+printf 'Skipped on bare board: SCALER/LCD/BACKLIGHT positive sequencing (display required)\n'
 
 [[ "$fail" -eq 0 ]]

@@ -7,8 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 trap test_cleanup EXIT
 uart_open
-cmd_reset_fault >/dev/null 2>&1 || true
-sleep 0.1
+ensure_clean_state || die "failed to enter clean state before K.5"
 baseline="$(cmd_get_status)" || die "no baseline GET_STATUS"
 expect_get_status_clean "$baseline" || die "expected clean state=0 fault=0 before K.5"
 

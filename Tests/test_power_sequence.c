@@ -99,6 +99,43 @@ void test_full_up_without_bl_leaves_backlight_off(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin));
 }
 
+void test_power_state_bits_set_only_after_adc_verify(void)
+{
+    seed_valid_adc();
+
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_WAIT_SCALER, dseq);
+    TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
+
+    tick_ms(SEQ_DELAY_SCALER_ON);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_SCALER, dseq);
+    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_SCALER);
+
+    tick_ms(1);
+    TEST_ASSERT_TRUE(power_state & DOM_SCALER);
+    TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_LCD | DOM_BACKLIGHT));
+
+    for (uint32_t i = 0; i < 1000 && dseq != DSEQ_UP_VERIFY_LCD; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_LCD, dseq);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
+
+    tick_ms(1);
+    TEST_ASSERT_TRUE(power_state & DOM_LCD);
+    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_BACKLIGHT);
+
+    for (uint32_t i = 0; i < 1000 && dseq != DSEQ_UP_VERIFY_BL; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
+
+    tick_ms(1);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+}
+
 /* ===== UP verify timeouts (Rules §6) ===== */
 
 void test_up_sequence_scaler_verify_timeout_triggers_seq_abort(void)
@@ -422,6 +459,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_full_up_sequence_completes_with_bl);
     RUN_TEST(test_full_up_without_bl_leaves_backlight_off);
+    RUN_TEST(test_power_state_bits_set_only_after_adc_verify);
     RUN_TEST(test_up_sequence_scaler_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_up_sequence_lcd_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_up_sequence_bl_verify_timeout_triggers_seq_abort);

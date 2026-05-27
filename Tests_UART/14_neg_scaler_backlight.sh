@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 trap test_cleanup EXIT
 uart_open
+ensure_clean_state || die "failed to enter clean state before K.3"
 baseline="$(cmd_get_status)" || die "no baseline GET_STATUS"
 log_info "POWER_CTRL SCALER|BACKLIGHT (mask=0x0005 value=0x0005, LCD off)"
 hex="$(cmd_power_ctrl 0x0005 0x0005)" || die "no POWER_CTRL response"

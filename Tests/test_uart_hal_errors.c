@@ -15,7 +15,7 @@ void     power_set_brightness(uint16_t p) { (void)p; }
 void     fault_clear_flags(void) {}
 static uint16_t fault_flags_set;
 void     fault_set_flag(uint16_t flag) { fault_flags_set |= flag; }
-void     power_reset_bridge(void) {}
+uint8_t  power_reset_bridge(void) { return 0; }
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx) { (void)i; (void)mn; (void)mx; }
 void     power_safe_state(void) {}
 void     bootloader_schedule(void) {}

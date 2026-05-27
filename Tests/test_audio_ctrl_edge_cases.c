@@ -5,6 +5,7 @@
  *   - AUDIO=OFF interrupts an in-flight ASEQ ON sequence (AUDIO=OFF has priority)
  *   - Repeated AUDIO=ON while amp_active=1 is a no-op
  *   - AUDIO=ON rejected (status=1) while aseq != ASEQ_IDLE
+ *   - AUDIO|TOUCH: TOUCH applied even when AUDIO=ON deferred (ASEQ busy)
  */
 #include "unity.h"
 #include "config.h"
@@ -79,11 +80,28 @@ void test_audio_on_rejected_while_aseq_busy(void)
     TEST_ASSERT_EQUAL_INT(ASEQ_ON_WAIT_MUTE, aseq);
 }
 
+void test_audio_touch_combined_touch_applied_while_aseq_busy(void)
+{
+    aseq        = ASEQ_ON_WAIT_SDZ;
+    power_state = DOM_AUDIO;
+    amp_active  = 0;
+
+    uint8_t r = power_ctrl_request(DOM_AUDIO | DOM_TOUCH, DOM_AUDIO | DOM_TOUCH);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(ASEQ_ON_WAIT_SDZ, aseq);
+    TEST_ASSERT_TRUE(power_state & DOM_TOUCH);
+
+    GPIO_PinState st;
+    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin, &st));
+    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_audio_off_interrupts_in_flight_aseq_on);
     RUN_TEST(test_audio_on_while_amp_active_is_noop);
     RUN_TEST(test_audio_on_rejected_while_aseq_busy);
+    RUN_TEST(test_audio_touch_combined_touch_applied_while_aseq_busy);
     return UNITY_END();
 }

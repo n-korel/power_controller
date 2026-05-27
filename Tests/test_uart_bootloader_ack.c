@@ -23,7 +23,7 @@ uint8_t  power_ctrl_request(uint16_t m, uint16_t v) { (void)m; (void)v; return 0
 void     power_set_brightness(uint16_t p) { (void)p; }
 void     fault_clear_flags(void) {}
 void     fault_set_flag(uint16_t flag) { (void)flag; }
-void     power_reset_bridge(void) {}
+uint8_t  power_reset_bridge(void) { return 0; }
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
 {
     (void)i; (void)mn; (void)mx;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test_firmware C.4 — unknown command 0xFF
+# Test_firmware C.4 — CMD=0xFF (NACK opcode)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh

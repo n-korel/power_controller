@@ -23,8 +23,10 @@ static uint8_t flash_cal_buf[128] __attribute__((aligned(4)));
 
 /* ===== power_manager mock ===== */
 static uint8_t mock_power_state;
+static uint8_t mock_power_idle = 1;
 
 uint8_t power_get_state(void) { return mock_power_state; }
+uint8_t power_is_idle(void)   { return mock_power_idle; }
 
 /* ===== adc_service mocks ===== */
 static uint16_t mock_raw_avg[14];
@@ -62,6 +64,7 @@ static void seed_valid_cal(const uint16_t offs[5])
 void setUp(void)
 {
     mock_power_state = 0;
+    mock_power_idle  = 1;
     memset(flash_cal_buf, 0xFF, sizeof(flash_cal_buf));
     memset(mock_raw_avg, 0, sizeof(mock_raw_avg));
     memset(applied_offset, 0, sizeof(applied_offset));
@@ -150,6 +153,19 @@ void test_calibrate_rejects_when_domains_on(void)
         TEST_ASSERT_EQUAL_UINT8(0, offset_called[i]);
 }
 
+void test_calibrate_rejects_when_sequencer_busy(void)
+{
+    mock_power_state = 0;
+    mock_power_idle  = 0;
+    memset(flash_cal_buf, 0xAA, sizeof(flash_cal_buf));
+
+    uint8_t r = flash_cal_calibrate();
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+
+    for (uint8_t i = 0; i < 5; i++)
+        TEST_ASSERT_EQUAL_UINT8(0, offset_called[i]);
+}
+
 /* ===== Calibrate → Load round-trip ===== */
 
 void test_calibrate_roundtrip(void)
@@ -186,6 +202,7 @@ int main(void)
     RUN_TEST(test_load_valid_crc_applies_offsets_to_adc_service);
     RUN_TEST(test_load_wrong_version_keeps_default_offsets);
     RUN_TEST(test_calibrate_rejects_when_domains_on);
+    RUN_TEST(test_calibrate_rejects_when_sequencer_busy);
     RUN_TEST(test_calibrate_roundtrip);
     return UNITY_END();
 }

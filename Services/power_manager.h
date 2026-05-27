@@ -7,10 +7,12 @@ void    power_manager_init(void);
 void    power_manager_process(void);
 
 uint8_t power_get_state(void);
+/* Non-zero when display and audio sequencers are idle. */
+uint8_t power_is_idle(void);
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value);
 
 void    power_set_brightness(uint16_t pwm);
-void    power_reset_bridge(void);
+uint8_t power_reset_bridge(void);
 void    power_safe_state(void);
 
 /* Called by fault_manager to force-off specific domains */

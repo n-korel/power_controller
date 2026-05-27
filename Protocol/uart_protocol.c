@@ -339,8 +339,8 @@ static void handle_reset_fault(void)
 
 static void handle_reset_bridge(void)
 {
-    power_reset_bridge();
-    uart_send_ack(CMD_RESET_BRIDGE, 0);
+    uint8_t result = power_reset_bridge();
+    uart_send_ack(CMD_RESET_BRIDGE, result);
 }
 
 static void handle_set_thresholds(void)

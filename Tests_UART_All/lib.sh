@@ -14,7 +14,9 @@ source "${_TESTS_UART_ALL_DIR}/config.sh"
 periph_test_needs_display() {
   case "$1" in
     04_telemetry_under_load.sh|05_backlight_brightness.sh|06_reset_bridge_display.sh|\
-    08_display_shutdown.sh|09_fault_lcd_current.sh) return 0 ;;
+    08_display_shutdown.sh|09_fault_lcd_current.sh|11_backlight_only_off.sh|\
+    12_all_at_once_up.sh|13_fault_recovery_display.sh|14_set_brightness_boundary.sh|\
+    15_display_resequence.sh) return 0 ;;
     *) return 1 ;;
   esac
 }

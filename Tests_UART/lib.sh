@@ -365,10 +365,18 @@ cmd_set_thresholds() {
   local mask=$1
   shift
   local ml=$((mask & 0xff)) mh=$(((mask >> 8) & 0xff))
-  uart_drain_fd
-  uart_tx_frame 0x07 "$ml" "$mh" "$@"
-  sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
-  uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC"
+  local attempt hex
+  for attempt in 1 2 3; do
+    uart_drain_fd
+    uart_tx_frame 0x07 "$ml" "$mh" "$@"
+    sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
+    if hex="$(uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC" 2>/dev/null)"; then
+      printf '%s' "$hex"
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
 }
 
 # Узкий V12 → FAULT_V12_RANGE (0x0400); восстановление порогов из config.sh
@@ -569,6 +577,29 @@ expect_get_status_clean() {
   state="$(echo "$parsed" | awk -F= '/^state=/{print $2}')"
   fault="$(echo "$parsed" | awk -F= '/^fault_flags=/{print $2}')"
   [[ "$state" == "0x00" && "$fault" == "0x0000" ]]
+}
+
+ensure_clean_state() {
+  local attempts=${1:-8}
+  local status_hex ack_hex
+  local i
+
+  for ((i = 1; i <= attempts; i++)); do
+    cmd_reset_fault >/dev/null 2>&1 || true
+    ack_hex="$(cmd_power_ctrl 0x007f 0x0000 2>/dev/null || true)"
+    if [[ -n "$ack_hex" ]] && ! expect_ack_status "$ack_hex" 0; then
+      sleep 0.1
+      continue
+    fi
+    sleep 0.2
+    status_hex="$(cmd_get_status 2>/dev/null || true)"
+    if [[ -n "$status_hex" ]] && expect_get_status_clean "$status_hex"; then
+      return 0
+    fi
+    sleep 0.15
+  done
+
+  return 1
 }
 
 # fault_flags: exact match (hex 0x0400) или маска (второй аргумент — биты, которые должны быть set)

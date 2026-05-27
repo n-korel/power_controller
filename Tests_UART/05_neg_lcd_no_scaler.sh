@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 trap test_cleanup EXIT
 uart_open
+ensure_clean_state || die "failed to enter clean state before C.8"
 baseline="$(cmd_get_status)" || die "no baseline GET_STATUS"
 log_info "LCD without SCALER (mask=0x0002 value=0x0002)"
 hex="$(cmd_power_ctrl 0x0002 0x0002)" || die "no response"

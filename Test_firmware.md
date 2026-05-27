@@ -753,10 +753,10 @@ bash Tests_UART/19_iwdg_stress.sh
 
 **IWDG параметры (из iwdg.c):**
 
-- Prescaler = 32, Reload = 1249
-- Timeout = 1249 / (LSI/32) = 1249 / (40000/32) ≈ 1.0 с
+- Prescaler = 256, Reload = 4095, Window = 4095
+- Timeout = 4095 / (LSI/256) = 4095 / (40000/256) ≈ 26.2 с
 
-MCU должен делать `HAL_IWDG_Refresh` в main loop быстрее чем за 1 секунду.
+MCU должен делать `HAL_IWDG_Refresh` в main loop быстрее чем за ~26 с.
 
 **Шаги:**
 
@@ -831,6 +831,36 @@ Device ID    : 0x0444 (STM32F03xx)
 Если видите информацию о чипе — ROM bootloader работает.
 
 **После проверки** — перезагрузить MCU (кнопка NRST или снять/подать питание). Прошивка снова запустится из Flash (BOOT0=LOW).
+
+### Б.2 — OTA budget vs IWDG timeout
+
+**Цель:** убедиться, что watchdog-окно покрывает полный OTA через ROM bootloader.
+
+**Исходные значения (текущая конфигурация):**
+
+- `LSI = 40000 Гц`
+- `Prescaler = 256`
+- `Reload = 4095`
+- `IWDG timeout = Reload / (LSI/Prescaler) = 4095 / (40000/256) ≈ 26.2 с`
+
+**Практический бюджет для 64 КБ по UART 115200:**
+
+- типично `10..15 с` на erase/write/verify (`stm32flash`)
+- рекомендуемый запас `>= 30%`
+- допустимый максимум для бюджетной оценки: `15 * 1.3 = 19.5 с`
+
+**Критерий PASS:** `IWDG timeout >= 20.0 с`.
+
+**Автопроверка в репозитории:**
+
+```bash
+python3 Tests/contract_check.py
+```
+
+Скрипт валит проверку, если:
+
+- `.ioc` и `Core/Src/iwdg.c` рассинхронизированы по `Prescaler/Reload/Window`
+- расчётный `IWDG timeout` меньше `20.0 с`
 
 ---
 
