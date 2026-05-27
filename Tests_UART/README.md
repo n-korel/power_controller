@@ -39,7 +39,7 @@ chmod +x *.sh parse_get_status.py
 | `run_all_bare_board.sh` | — | Full suite (excludes #13) |
 | `01_ping.sh` | C.1 | PING → `0xAA` |
 | `03_reset_fault.sh` | C.11 | Clears latched faults before clean GET_STATUS |
-| `02_get_status.sh` | C.2 | 31-byte frame, `state=0`, `fault=0` |
+| `02_get_status.sh` | C.2 | 34-byte frame, `state=0`, `fault=0` |
 | `04_neg_backlight.sh` | C.7 | BACKLIGHT without SCALER/LCD → `0x01` |
 | `12_stress_get_status.sh` | K.1 | 20× GET_STATUS (50 ms gap) |
 | `14_neg_scaler_backlight.sh` | K.3 | SCALER\|BACKLIGHT without LCD → `0x01` |

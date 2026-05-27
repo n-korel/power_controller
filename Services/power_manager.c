@@ -9,6 +9,10 @@
 /* ===== Domain state (bitmask mirrors DOM_* in config.h) ===== */
 static uint8_t power_state;
 static uint16_t brightness_pwm;
+static uint16_t last_power_ctrl_mask;
+static uint16_t last_power_ctrl_value;
+static uint32_t reset_flags_raw;
+static uint32_t boot_counter __attribute__((section(".noinit")));
 
 /* ===== Display sequencing SM (Rules 6, 13) ===== */
 typedef enum {
@@ -171,6 +175,9 @@ void power_manager_init(void)
 {
     power_state    = 0;
     brightness_pwm = 0;
+    last_power_ctrl_mask = 0;
+    last_power_ctrl_value = 0;
+    reset_flags_raw = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
     amp_active     = 0;
@@ -183,6 +190,8 @@ void power_manager_init(void)
     auto_startup_done         = 0;
     auto_startup_pending_aux  = 0;
 #if !defined(UNIT_TEST)
+    reset_flags_raw = RCC->CSR;
+    boot_counter++;
     /* После IWDG reset RAM обнуляется: без этого снова §6.5 auto-start → state=0x4B
      * сразу после host POWER_CTRL (типично BACKLIGHT ON на стенде). */
     if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
@@ -240,6 +249,8 @@ void power_safe_state(void)
 
     power_state    = 0;
     brightness_pwm = 0;
+    last_power_ctrl_mask = 0;
+    last_power_ctrl_value = 0;
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
     sseq                     = STARTUP_IDLE;
@@ -381,10 +392,15 @@ static void dseq_process(void)
 
     case DSEQ_UP_DONE:
         if (auto_startup_pending_aux) {
+            /* Board revision may not populate TOUCH/AUDIO hardware. */
+#if (ENABLE_TOUCH_HW != 0U)
             gpio_domain_set(DOM_TOUCH, 1);
             power_state |= DOM_TOUCH;
+#endif
+#if (ENABLE_AUDIO_HW != 0U)
             gpio_domain_set(DOM_AUDIO, 1);
             power_state |= DOM_AUDIO;
+#endif
             auto_startup_pending_aux = 0;
         }
         dseq = DSEQ_IDLE;
@@ -597,6 +613,31 @@ uint8_t power_get_state(void)
     return power_state;
 }
 
+uint8_t power_get_dseq_raw(void)
+{
+    return (uint8_t)dseq;
+}
+
+uint8_t power_get_last_power_ctrl_mask_lo(void)
+{
+    return (uint8_t)(last_power_ctrl_mask & 0x00FFU);
+}
+
+uint8_t power_get_last_power_ctrl_value_lo(void)
+{
+    return (uint8_t)(last_power_ctrl_value & 0x00FFU);
+}
+
+uint32_t power_get_reset_flags_raw(void)
+{
+    return reset_flags_raw;
+}
+
+uint32_t power_get_boot_counter(void)
+{
+    return boot_counter;
+}
+
 uint8_t power_is_idle(void)
 {
     return (dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) ? 1 : 0;
@@ -626,12 +667,27 @@ uint8_t power_reset_bridge(void)
 
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
+    last_power_ctrl_mask = mask;
+    last_power_ctrl_value = value;
+
     /* Reject any unknown bits in mask/value (Rules §4.5 / invariant list §11: domain bits 0..6 only). */
     const uint16_t valid = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
                                       DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
     if (((mask | value) & (uint16_t)~valid) != 0U) {
         return 1;
     }
+
+    /* Board revision gating: do not allow enabling absent hardware. */
+#if (ENABLE_TOUCH_HW == 0U)
+    if ((mask & DOM_TOUCH) && (value & DOM_TOUCH)) {
+        return 1;
+    }
+#endif
+#if (ENABLE_AUDIO_HW == 0U)
+    if ((mask & DOM_AUDIO) && (value & DOM_AUDIO)) {
+        return 1;
+    }
+#endif
 
     /* Compute desired future state for validation against the effective state
      * (including pending display sequencing result). */

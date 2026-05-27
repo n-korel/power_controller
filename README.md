@@ -109,7 +109,7 @@ flowchart LR
 ## Старт
 
 1. **PING** `0x01` → в ответе `status = 0xAA` (MCU alive).
-2. **GET_STATUS** `0x04` → `LEN = 26`, разобрать телеметрию.
+2. **GET_STATUS** `0x04` → `LEN = 27`, разобрать телеметрию.
 3. Проверить после старта: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=OFF`.
 
 ### Рекомендуемый цикл опроса
@@ -121,7 +121,7 @@ flowchart LR
 ### Чек-лист
 
 - [ ] PING → `0xAA`
-- [ ] GET_STATUS → 26 байт DATA, CRC сходится
+- [ ] GET_STATUS → 27 байт DATA, CRC сходится
 - [ ] `BACKLIGHT=ON` только при `SCALER` и `LCD` уже ON
 - [ ] После fault: `RESET_FAULT` снимает флаги, домены **не** включаются сами
 - [ ] `BOOTLOADER_ENTER` → ACK → прошивка через ROM bootloader на том же UART0
@@ -170,7 +170,7 @@ flowchart LR
 | 0x01 | PING             | 0           | 1 (`0xAA`)       |
 | 0x02 | POWER_CTRL       | 4           | 1 (`status`)     |
 | 0x03 | SET_BRIGHTNESS   | 2           | 1                |
-| 0x04 | GET_STATUS       | 0           | **26**           |
+| 0x04 | GET_STATUS       | 0           | **27**           |
 | 0x05 | RESET_FAULT      | 0           | 1                |
 | 0x06 | RESET_BRIDGE     | 0           | 1                |
 | 0x07 | SET_THRESHOLDS   | переменный  | 1                |
@@ -207,7 +207,7 @@ flowchart LR
 
 ## GET_STATUS
 
-Ответ: **строго 26 байт** DATA. Парсить **по offset**, не через `struct` без `packed`.
+Ответ: **строго 27 байт** DATA (последний байт — `dseq`, сырое состояние display sequencer для диагностики; можно игнорировать на хосте). Парсить **по offset**, не через `struct` без `packed`.
 
 | Offset | Поле          | Тип    | Описание                                  |
 | :----- | :------------ | :----- | :---------------------------------------- |
@@ -310,7 +310,7 @@ POWER_CTRL  →  явное включение нужных доменов
 | ------------------------- | -------------------------- | ----------------------------------------------- |
 | Нет ответа на команды     | CRC, порт, скорость, TX/RX | CRC8/ATM; 115200 8N1; перекрёст TX/RX           |
 | PING без ответа           | MCU не стартовал, обрыв    | `PGOOD`, питание 3.3V_A; повторить после 100 мс |
-| GET_STATUS «короче 26»    | неверный парсер            | `LEN` в кадре = 26 для DATA                     |
+| GET_STATUS «короче 27»    | неверный парсер            | `LEN` в кадре = 27 для DATA                     |
 | BACKLIGHT `status=1`      | нет SCALER/LCD             | поле `state` в GET_STATUS                       |
 | После RESET_FAULT всё OFF | норма                      | нужен POWER_CTRL                                |
 | Токи на max               | клиппинг АЦП               | см. POWER_Controller.md                         |

@@ -19,7 +19,7 @@ commands:
   - {name: PING,             code: 0x01, req_len: 0, resp_len: 1,  resp_notes: "status=0xAA"}
   - {name: POWER_CTRL,       code: 0x02, req_len: 4, resp_len: 1,  req_fields: [{name: mask, type: uint16_le, offset: 0}, {name: value, type: uint16_le, offset: 2}]}
   - {name: SET_BRIGHTNESS,   code: 0x03, req_len: 2, resp_len: 1,  req_fields: [{name: pwm, type: uint16_le, offset: 0}]}
-  - {name: GET_STATUS,       code: 0x04, req_len: 0, resp_len: 26}
+  - {name: GET_STATUS,       code: 0x04, req_len: 0, resp_len: 37}
   - {name: RESET_FAULT,      code: 0x05, req_len: 0, resp_len: 1}
   - {name: RESET_BRIDGE,     code: 0x06, req_len: 0, resp_len: 1}
   - {name: SET_THRESHOLDS,   code: 0x07, req_len: ">=2", resp_len: 1, req_fields: [{name: mask, type: uint16_le, offset: 0}]}
@@ -28,7 +28,7 @@ commands:
   - {name: NACK,             code: 0xFF, req_len: 1, resp_len: 0,  req_fields: [{name: error_code, type: uint8, offset: 0}]}
 
 get_status:
-  data_len: 26
+  data_len: 37
   layout:
     - {field: v24_mv,           type: uint16_le, offset: 0}
     - {field: v12_mv,           type: uint16_le, offset: 2}
@@ -44,6 +44,11 @@ get_status:
     - {field: state,            type: uint8,     offset: 22}
     - {field: fault_flags,      type: uint16_le, offset: 23}
     - {field: inputs,           type: uint8,     offset: 25}
+    - {field: dseq,             type: uint8,     offset: 26}
+    - {field: last_power_ctrl_mask_lo,  type: uint8,     offset: 27}
+    - {field: last_power_ctrl_value_lo, type: uint8,     offset: 28}
+    - {field: reset_flags_raw,  type: uint32_le, offset: 29}
+    - {field: boot_counter,     type: uint32_le, offset: 33}
 
 domain_bits:
   SCALER: 0

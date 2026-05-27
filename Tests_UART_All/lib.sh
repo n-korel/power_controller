@@ -141,7 +141,7 @@ periph_state_is_autostart_tail() {
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
 sys.exit(0 if raw[25] == 0x4B else 1)
 PY
@@ -283,9 +283,9 @@ expect_rails_in_range() {
   python3 - "$hex" <<'PY'
 import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
-data = raw[3:29]
+data = raw[3:40]
 off = 0
 rails = {}
 for n in ('v24', 'v12', 'v5', 'v3v3'):
@@ -315,9 +315,9 @@ import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 i_min = int(sys.argv[2])
 i_max = int(sys.argv[3])
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
-data = raw[3:29]
+data = raw[3:40]
 names = ['i_lcd', 'i_backlight', 'i_scaler', 'i_audio_l', 'i_audio_r']
 vals = {}
 off = 8

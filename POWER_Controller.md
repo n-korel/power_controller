@@ -46,7 +46,7 @@ MCU **не шлёт** асинхронных событий на Q7. Актуа�
 ### Минимальная проверка связи
 
 1. **PING** `0x01` → в ответе `status = 0xAA` (MCU alive).
-2. **GET_STATUS** `0x04` → `LEN=26`, разобрать телеметрию (см. [GET_STATUS](#get_status-004)).
+2. **GET_STATUS** `0x04` → `LEN=27`, разобрать телеметрию (см. [GET_STATUS](#get_status-004)).
 3. После успешного старта MCU ожидается: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=OFF` (см. [6.1](#61-старт-системы)).
 
 ### Рекомендуемый цикл опроса
@@ -58,7 +58,7 @@ MCU **не шлёт** асинхронных событий на Q7. Актуа�
 ### Чек-лист «интеграция готова»
 
 - [ ] PING → `0xAA`
-- [ ] GET_STATUS → 26 байт DATA, CRC сходится
+- [ ] GET_STATUS → 27 байт DATA, CRC сходится
 - [ ] `BACKLIGHT=ON` только при `SCALER` и `LCD` уже ON
 - [ ] После fault: `RESET_FAULT` снимает флаги, домены **не** включаются сами
 - [ ] `BOOTLOADER_ENTER` → ACK → прошивка через ROM bootloader на том же UART0
@@ -85,7 +85,7 @@ MCU **не шлёт** асинхронных событий на Q7. Актуа�
 | 0x01 | PING             | 0           | 1 (`0xAA`)          |
 | 0x02 | POWER_CTRL       | 4           | 1 (`status`)        |
 | 0x03 | SET_BRIGHTNESS   | 2           | 1                   |
-| 0x04 | GET_STATUS       | 0           | **26**              |
+| 0x04 | GET_STATUS       | 0           | **27**              |
 | 0x05 | RESET_FAULT      | 0           | 1                   |
 | 0x06 | RESET_BRIDGE     | 0           | 1                   |
 | 0x07 | SET_THRESHOLDS   | переменный  | 1                   |
@@ -138,10 +138,10 @@ MCU **не шлёт** асинхронных событий на Q7. Актуа�
 
 ### После подачи питания (без участия Q7)
 
-MCU ждёт `PGOOD`, затем сам включает `SCALER` + `LCD` (sequencing), `TOUCH`, питание `AUDIO` (усилитель в mute/shutdown). **Подсветка OFF.**  
+MCU ждёт `PGOOD`, затем сам включает `SCALER` + `LCD` (sequencing). **Подсветка OFF.**  
 Подробно: [6.1](#61-старт-системы), [13.6](#136-интеграция-с-запуском-системы-раздел-61).
 
-Ожидаемая маска `state` (биты POWER_CTRL): `SCALER | LCD | TOUCH | AUDIO` (без `BACKLIGHT`).
+Ожидаемая маска `state` (биты POWER_CTRL): `SCALER | LCD` (без `BACKLIGHT`).
 
 ### Включить подсветку
 
@@ -364,8 +364,7 @@ NTC на текущей ревизии **не установлены**; в `GET_
 3. Ждёт `PGOOD = HIGH` (активный опрос; если не появился за 5 секунд — установить `FAULT_PGOOD_LOST` и оставаться в INIT)
 4. Включает подсистемы по значениям по умолчанию:
    - `SCALER` + `LCD` — **через полный display power sequencing** (раздел 13.2, шаги 1–6); `BACKLIGHT` при старте **не включается**
-   - `TOUCH` = ON (простое GPIO, без sequencing)
-   - `AUDIO` = ON (питание включается, усилитель удерживается в безопасном состоянии: `SDZ = LOW`, `MUTE = HIGH`; последовательность раздела 19.6 выполняется только по команде от Q7)
+   - `TOUCH` / `AUDIO` — для данной ревизии **не включаются автоматически** и не включаются через `POWER_CTRL` (см. `ENABLE_TOUCH_HW`, `ENABLE_AUDIO_HW` в `Config/config.h`)
    - `BACKLIGHT` = OFF
 
 Дальнейшее управление осуществляется командами от Q7.
@@ -529,10 +528,13 @@ struct {
     uint8_t state;
     uint16_t fault_flags;
     uint8_t inputs;
+    uint8_t dseq;   /* фаза display sequencer (сырое значение внутреннего enum); 0 = IDLE */
 }
 ```
 
 `state`, `fault_flags`, `inputs` — см. [Контракт](#контракт-mcu--q7-кратко) и [19.4.1](#1941-битовая-карта-fault_flags-контракт-mcu--linux).
+
+`dseq` — диагностическое поле для стенда/UART (какой шаг display sequencing выполняется). Прикладной хост может игнорировать. Соответствие номера строкам `typedef enum { DSEQ_* }` см. исходник `Services/power_manager.c`.
 
 #### RESET_FAULT (0x05)
 

@@ -299,6 +299,23 @@ static void handle_get_status(void)
     buf[pos++] = (uint8_t)(ff >> 8);
     /* inputs (uint8) */
     buf[pos++] = input_get_packed();
+    /* display sequencer state (uint8), see power_get_dseq_raw() */
+    buf[pos++] = power_get_dseq_raw();
+    /* last POWER_CTRL request low bytes (domain bits 0..6) */
+    buf[pos++] = power_get_last_power_ctrl_mask_lo();
+    buf[pos++] = power_get_last_power_ctrl_value_lo();
+    /* reset flags (uint32 LE): raw RCC->CSR snapshot captured at boot */
+    uint32_t rf = power_get_reset_flags_raw();
+    buf[pos++] = (uint8_t)(rf & 0xFF);
+    buf[pos++] = (uint8_t)((rf >> 8) & 0xFF);
+    buf[pos++] = (uint8_t)((rf >> 16) & 0xFF);
+    buf[pos++] = (uint8_t)((rf >> 24) & 0xFF);
+    /* boot counter (uint32 LE): retained in .noinit across resets */
+    uint32_t bc = power_get_boot_counter();
+    buf[pos++] = (uint8_t)(bc & 0xFF);
+    buf[pos++] = (uint8_t)((bc >> 8) & 0xFF);
+    buf[pos++] = (uint8_t)((bc >> 16) & 0xFF);
+    buf[pos++] = (uint8_t)((bc >> 24) & 0xFF);
 
     tx_send(CMD_GET_STATUS, buf, GET_STATUS_DATA_LEN);
 }

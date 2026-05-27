@@ -22,4 +22,4 @@ for i in $(seq 1 "$STRESS_GET_STATUS_COUNT"); do
   ok=$((ok + 1))
   sleep "$STRESS_GET_STATUS_INTERVAL_SEC"
 done
-log_pass "K.1: ${ok}/${STRESS_GET_STATUS_COUNT} responses, 31 bytes each"
+log_pass "K.1: ${ok}/${STRESS_GET_STATUS_COUNT} responses, 34 bytes each"

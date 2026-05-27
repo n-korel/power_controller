@@ -61,6 +61,12 @@ typedef enum {
 /* 1 = monitor V+24 (PC0) and latch FAULT_V24_RANGE; 0 = skip (boards without V+24 on V24_M). */
 #define ENABLE_V24_FAULT_CHECK  0U
 
+/* ===== Board revision feature switches =====
+ * For this hardware revision, AUDIO and TOUCH must not be auto-started and must
+ * not be enabled via POWER_CTRL. */
+#define ENABLE_AUDIO_HW      0U
+#define ENABLE_TOUCH_HW      0U
+
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
 #define THRESH_I_SCALER_MAX  1500U
@@ -110,7 +116,7 @@ typedef enum {
 #define CMD_CALIBRATE_OFFSET 0x09U
 #define CMD_NACK             0xFFU
 
-#define GET_STATUS_DATA_LEN  26U
+#define GET_STATUS_DATA_LEN  37U
 #define PING_RESPONSE        0xAAU
 
 /* ===== Domain bitmask (Rules 4.5) ===== */

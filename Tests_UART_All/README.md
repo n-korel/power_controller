@@ -3,7 +3,7 @@
 Scripts for **POWER_Controller** on a bench with:
 
 - board powered (12/5/3.3 V per schematic);
-- **scaler, LCD, backlight, audio** connected (real load);
+- **scaler, LCD, backlight** connected (real load);
 - **USB-UART TTL 3.3 V** on **UART0** (`PA9`/`PA10`, common GND);
 - **no Q7 (Linux)** — OTA and full Linux recovery flows are out of scope.
 
@@ -48,7 +48,7 @@ chmod +x *.sh parse_get_status.py
 | `14_set_brightness_boundary.sh` | 1 | `SET_BRIGHTNESS` на граничных значениях `1` и `999` при `BL ON` |
 | `15_display_resequence.sh` | 1 | Повторные циклы `UP/DN/UP` дисплея без power-reset |
 | `06_reset_bridge_display.sh` | 4 | `RESET_BRIDGE` with SCALER+LCD (LA on PB8) |
-| `07_audio_sequencing.sh` | 5 | AUDIO ON/OFF (DMM: PC8 SDZ, PC6 MUTE) |
+| `07_audio_sequencing.sh` | 5 | AUDIO ON/OFF (DMM: PC8 SDZ, PC6 MUTE) — для ревизии с `ENABLE_AUDIO_HW=0` ожидаемо не применяется |
 | `10_sus_s3_manual.sh` | 6 | SUS_S3# → PWRBTN# procedure (manual) |
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
@@ -63,6 +63,7 @@ If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verif
 | `SEQ_ON_WAIT_SEC` | `2.0` | Delay after SCALER+LCD ON |
 | `THRESH_I_LCD_TRAP_MA` | `50` | LCD overcurrent trap for block 3 |
 | `LOAD_I_MIN_MA` | `5` | Minimum plausible load current |
+| `PERIPH_AUDIO_HW_ENABLED` | `0` | `0` — AUDIO ON ожидаемо отклоняется (status=1); `1` — проверяется полный AUDIO ON/OFF |
 | `RUN_SUS_S3_HW_TEST` | `0` | `1` — count block 6 as PASS after printing steps |
 | `DISPLAY_SKIP_REASON` | (built-in EN string) | Message when display tests are skipped |
 

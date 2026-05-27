@@ -421,7 +421,7 @@ def main() -> int:
     if not layout:
         die("get_status.layout is empty or not parsed")
     last_end = 0
-    sizes = {"uint8": 1, "uint16_le": 2, "int16_le": 2, "uint16": 2, "int16": 2}
+    sizes = {"uint8": 1, "uint16_le": 2, "int16_le": 2, "uint32_le": 4, "uint16": 2, "int16": 2}
     for item in layout:
         off = int(item.get("offset", "-1"))
         typ = item.get("type")

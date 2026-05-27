@@ -14,14 +14,6 @@
 
 #include "power_manager.c"
 
-static void tick_ms(uint32_t ms)
-{
-    for (uint32_t i = 0; i < ms; i++) {
-        systick_ms++;
-        power_manager_process();
-    }
-}
-
 void setUp(void)
 {
     pth_reset();
@@ -30,6 +22,18 @@ void setUp(void)
 
 void tearDown(void) {}
 
+#if (ENABLE_AUDIO_HW == 0U)
+void test_audio_power_ctrl_on_is_rejected_when_hw_disabled(void)
+{
+    uint8_t r = power_ctrl_request(DOM_AUDIO, DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state & DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(SDZ_GPIO_Port,  SDZ_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(MUTE_GPIO_Port, MUTE_Pin));
+}
+#else
 /* ===== ASEQ ON (Rules §9.1) ===== */
 
 void test_aseq_on_full_order_and_timing(void)
@@ -185,15 +189,20 @@ void test_power_force_off_audio_sets_safe_state_immediately(void)
     TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_AUDIO);
     TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
 }
+#endif
 
 /* ===== Runner ===== */
 int main(void)
 {
     UNITY_BEGIN();
+#if (ENABLE_AUDIO_HW == 0U)
+    RUN_TEST(test_audio_power_ctrl_on_is_rejected_when_hw_disabled);
+#else
     RUN_TEST(test_aseq_on_full_order_and_timing);
     RUN_TEST(test_aseq_off_full_order_and_timing);
     RUN_TEST(test_aseq_on_from_safe_on_runs_partial_sdz_mute_only);
     RUN_TEST(test_aseq_on_while_amp_active_is_noop);
     RUN_TEST(test_power_force_off_audio_sets_safe_state_immediately);
+#endif
     return UNITY_END();
 }

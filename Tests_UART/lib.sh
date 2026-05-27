@@ -451,17 +451,17 @@ fault_wait_flags() {
   return 1
 }
 
-# Валидный кадр GET_STATUS: 31 байт, CMD=0x04, LEN=0x1A, ETX=0x03
+# Валидный кадр GET_STATUS: 42 байта, CMD=0x04, LEN=0x25 (37 DATA), ETX=0x03
 validate_get_status_hex() {
   local hex=$1
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 ok = (
-    len(raw) == 31
+    len(raw) == 42
     and raw[0] == 0x02
     and raw[1] == 0x04
-    and raw[2] == 0x1A
+    and raw[2] == 0x25
     and raw[-1] == 0x03
 )
 sys.exit(0 if ok else 1)
@@ -507,20 +507,20 @@ sys.exit(0 if crc8_calc(body) == crc_rx else 1)
 PY
 }
 
-# Парсинг GET_STATUS (26 байт DATA) — вывод key=value
+# Парсинг GET_STATUS (37 байт DATA) — вывод key=value
 parse_get_status_hex() {
   local hex=$1
   python3 - "$hex" <<'PY'
 import struct, sys
 h = sys.argv[1].replace(' ', '').strip().lower()
 raw = bytes.fromhex(h)
-if len(raw) != 31:
-    print(f'error=bad_frame_len len={len(raw)} expected=31', file=sys.stderr)
+if len(raw) != 42:
+    print(f'error=bad_frame_len len={len(raw)} expected=42', file=sys.stderr)
     sys.exit(2)
-if raw[0] != 0x02 or raw[1] != 0x04 or raw[2] != 0x1a or raw[-1] != 0x03:
+if raw[0] != 0x02 or raw[1] != 0x04 or raw[2] != 0x25 or raw[-1] != 0x03:
     print('error=bad_header_or_etx', file=sys.stderr)
     sys.exit(2)
-data = raw[3:29]
+data = raw[3:40]
 off = 0
 for n in ['v24','v12','v5','v3v3']:
     v = struct.unpack_from('<H', data, off)[0]
@@ -537,9 +537,19 @@ for n in ['temp0','temp1']:
 state = data[22]
 fault = struct.unpack_from('<H', data, 23)[0]
 inputs = data[25]
+dseq = data[26]
+last_mask_lo = data[27]
+last_value_lo = data[28]
+rf = int.from_bytes(data[29:33], 'little')
+bc = int.from_bytes(data[33:37], 'little')
 print(f'state=0x{state:02x}')
 print(f'fault_flags=0x{fault:04x}')
 print(f'inputs=0x{inputs:02x}')
+print(f'dseq={dseq}')
+print(f'last_power_ctrl_mask_lo=0x{last_mask_lo:02x}')
+print(f'last_power_ctrl_value_lo=0x{last_value_lo:02x}')
+print(f'reset_flags_raw=0x{rf:08x}')
+print(f'boot_counter={bc}')
 print(f'pgood={(inputs >> 6) & 1}')
 PY
 }
@@ -609,7 +619,7 @@ expect_fault_flags() {
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 exp = sys.argv[2].lower()
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
 fault = raw[26] | (raw[27] << 8)
 if exp.startswith('has:'):
@@ -625,7 +635,7 @@ expect_state_bits() {
   python3 - "$hex" "$set_mask" "$clear_mask" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
 state = raw[25]
 set_m = int(sys.argv[2], 0)
@@ -641,7 +651,7 @@ expect_state_unchanged() {
 import sys
 def state(h):
     raw = bytes.fromhex(h.replace(' ', ''))
-    return raw[25] if len(raw) == 31 else None
+    return raw[25] if len(raw) == 42 else None
 a, b = state(sys.argv[1]), state(sys.argv[2])
 sys.exit(0 if a is not None and a == b else 1)
 PY
@@ -652,7 +662,7 @@ expect_fault_reserved_clear() {
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
 fault = raw[26] | (raw[27] << 8)
 sys.exit(0 if (fault & 0x8000) == 0 else 1)

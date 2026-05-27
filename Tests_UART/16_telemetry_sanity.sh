@@ -10,9 +10,9 @@ currents_in_range() {
   python3 - "$hex" <<'PY'
 import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 31:
+if len(raw) != 42:
     sys.exit(1)
-data = raw[3:29]
+data = raw[3:40]
 off = 20
 i_min = int(os.environ['TELEMETRY_I_MIN_MA'])
 i_max = int(os.environ['TELEMETRY_I_MAX_MA'])
@@ -65,10 +65,10 @@ import sys
 
 h = sys.argv[1].replace(' ', '').strip().lower()
 raw = bytes.fromhex(h)
-if len(raw) != 31:
+if len(raw) != 42:
     print(f'FAIL: frame len {len(raw)}', file=sys.stderr)
     sys.exit(1)
-data = raw[3:29]
+data = raw[3:40]
 off = 0
 rails = {}
 for n in ('v24', 'v12', 'v5', 'v3v3'):

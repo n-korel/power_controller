@@ -3,7 +3,7 @@
  *
  * Covers Rules_POWER.md:
  *   - §1.1  no blocking waits outside main loop
- *   - §6.5  PGOOD=HIGH -> auto-bring up SCALER+LCD (no BL), TOUCH, AUDIO (safe)
+ *   - §6.5  PGOOD=HIGH -> auto-bring up SCALER+LCD (no BL)
  *   - §6.5  PGOOD absent for 5 s -> latch FAULT_PGOOD_LOST, stay safe
  *   - §12   safe state preserved on timeout, HAL_IWDG_Refresh stays in main loop
  */
@@ -57,7 +57,7 @@ void test_rejected_power_ctrl_preserves_pending_aux(void)
     TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
 
     tick_ms(400);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_TOUCH | DOM_AUDIO, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
 }
 
 void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
@@ -172,27 +172,17 @@ void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
     mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
     power_startup_begin();
 
-    /* Auto-startup starts display UP; TOUCH/AUDIO come up at DSEQ_UP_DONE. */
+    /* Auto-startup starts display UP. */
     tick_ms(400);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    /* Auto-startup per Rules §6.5 / README §13.6: SCALER UP sequence
-     * without BL, TOUCH ON, AUDIO ON (POWER_AUDIO pin HIGH, DOM_AUDIO bit
-     * set) while the amplifier stays safe (SDZ=0, MUTE=1 from init). */
+    /* Auto-startup per Rules §6.5: SCALER UP sequence without BL. */
     TEST_ASSERT_EQUAL_UINT8(0, dseq_up_with_bl);
-    TEST_ASSERT_TRUE(power_state & DOM_TOUCH);
-    TEST_ASSERT_TRUE(power_state & DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 
-    GPIO_PinState st;
-    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
-    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
-    /* Amp must remain in safe state: SDZ/MUTE untouched, amp_active=0 */
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(SDZ_GPIO_Port,  SDZ_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(MUTE_GPIO_Port, MUTE_Pin));
-    TEST_ASSERT_EQUAL_UINT8(0, amp_active);
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
 }
 
 void test_pgood_high_does_not_override_nonzero_runtime_state(void)
@@ -225,9 +215,8 @@ void test_pgood_high_full_up_completes_without_backlight(void)
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    /* Per Rules §6.5 / README §13.6: SCALER=ON, LCD=ON, BACKLIGHT=OFF,
-     * TOUCH=ON, AUDIO=ON (amp safe). */
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_TOUCH | DOM_AUDIO, power_state);
+    /* Per Rules §6.5: SCALER=ON, LCD=ON, BACKLIGHT=OFF. */
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin));
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
@@ -263,7 +252,7 @@ void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
     tick_ms(400);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    TEST_ASSERT_TRUE(power_state & DOM_TOUCH);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
 
