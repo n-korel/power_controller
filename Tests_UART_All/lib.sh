@@ -198,7 +198,8 @@ periph_display_scaler_lcd_on() {
 }
 
 periph_display_backlight_on() {
-  local hex gs attempt ack_status
+  local hex gs attempt ack_status max_attempts
+  max_attempts="${PERIPH_BACKLIGHT_ON_TRIES:-3}"
   cmd_reset_fault >/dev/null 2>&1 || true
   sleep 0.05
   periph_strip_nondisplay_domains || return 1
@@ -209,12 +210,12 @@ periph_display_backlight_on() {
     printf '%s' "$gs"
     return 0
   fi
-  for attempt in 1 2; do
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
     cmd_reset_fault >/dev/null 2>&1 || true
     sleep 0.05
     # После fault_policy state может быть 0x00: перед BACKLIGHT поднимаем SCALER+LCD заново.
     gs="$(periph_display_scaler_lcd_on)" || {
-      log_info "BACKLIGHT precondition failed: SCALER+LCD not ready (attempt ${attempt}/2)" >&2
+      log_info "BACKLIGHT precondition failed: SCALER+LCD not ready (attempt ${attempt}/${max_attempts})" >&2
       continue
     }
     periph_strip_nondisplay_domains || continue
@@ -224,7 +225,7 @@ periph_display_backlight_on() {
       periph_log_status "$gs" "pre-BL state"
       continue
     fi
-    log_info "POWER_CTRL BACKLIGHT ON (mask=0x0004 value=0x0004), attempt ${attempt}/2" >&2
+    log_info "POWER_CTRL BACKLIGHT ON (mask=0x0004 value=0x0004), attempt ${attempt}/${max_attempts}" >&2
     hex="$(cmd_power_ctrl 0x0004 0x0004)" || continue
     ack_status="$(python3 - "$hex" <<'PY'
 import sys
@@ -233,7 +234,7 @@ print(b[3] if len(b) >= 4 else 255)
 PY
 )"
     if [[ "$ack_status" != "0" ]]; then
-      log_info "BACKLIGHT ON rejected: ACK status=${ack_status} (attempt ${attempt}/2)" >&2
+      log_info "BACKLIGHT ON rejected: ACK status=${ack_status} (attempt ${attempt}/${max_attempts})" >&2
       sleep 0.15
       continue
     fi
