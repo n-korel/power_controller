@@ -69,7 +69,7 @@ periph_currents_near_zero() {
   local hex=$1
   export TELEMETRY_I_ZERO_MIN_MA TELEMETRY_I_ZERO_MAX_MA
   expect_currents_in_window "$hex" "$TELEMETRY_I_ZERO_MIN_MA" "$TELEMETRY_I_ZERO_MAX_MA" \
-    "i_lcd,i_backlight,i_scaler,i_audio_l,i_audio_r"
+    "${TELEMETRY_I_CHANNELS:-i_lcd,i_scaler,i_audio_l,i_audio_r}"
 }
 
 # state=0, сброс fault, CALIBRATE_OFFSET при «завышенных» токах (типично без калибровки во flash)

@@ -128,6 +128,7 @@ void fault_manager_process(void)
     }
 
     /* Backlight current */
+#if (ENABLE_BL_CURRENT_SENSOR != 0U)
     pstate = power_get_state();
     if (adc_new && (pstate & DOM_BACKLIGHT)) {
         if (current_exceeds_threshold(1)) {
@@ -140,6 +141,9 @@ void fault_manager_process(void)
             i_consec[1] = 0;
         }
     }
+#else
+    i_consec[1] = 0;
+#endif
 
     /* Scaler current */
     pstate = power_get_state();

@@ -53,6 +53,8 @@ chmod +x *.sh parse_get_status.py
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
 
+If **NSM2012 (U4) is not populated** on the backlight path (`IP+`/`IP-` jumpered), firmware must use `ENABLE_BL_CURRENT_SENSOR=0` in `Config/config.h`. UART tests then expect `i_backlight=-32768` and omit that channel from load/zero current checks (`TELEMETRY_I_CHANNELS`, `LOAD_I_CHANNELS` in `config.sh`).
+
 If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verify), `run_all_peripheral.sh` marks **04–06, 08–09, 11–15** as **`[SKIP]`** instead of cascading **FAIL**. Tests **07** (audio) and **10** (SUS_S3 manual) still run.
 
 ## Environment variables

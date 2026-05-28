@@ -67,6 +67,13 @@ typedef enum {
 #define ENABLE_AUDIO_HW      0U
 #define ENABLE_TOUCH_HW      0U
 
+/* U4 (NSM2012) not populated: IP+ and IP- are jumpered; BACKLIGHT_CURRENT (PA1) is N/C.
+ * Disable BL overcurrent fault and report i_backlight = -32768 in GET_STATUS. */
+#define ENABLE_BL_CURRENT_SENSOR  0U
+
+/* Backlight supply: R62=+5V_A, R63=+12V_A, R64=+24V (one populated). This board: R63 (+12V). */
+#define BACKLIGHT_SUPPLY_5V       0U   /* 0 → SEQ_VERIFY_BL_MV=9000 mV */
+
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
 #define THRESH_I_SCALER_MAX  1500U
@@ -76,6 +83,7 @@ typedef enum {
 #define SEQ_DELAY_SCALER_ON  50U
 #define SEQ_DELAY_RST_RELEASE 20U
 #define SEQ_DELAY_LCD_ON     50U
+#define SEQ_DELAY_BL_ON      20U
 #define SEQ_DELAY_PWM_OFF    10U
 #define SEQ_DELAY_BL_OFF     20U
 #define SEQ_DELAY_LCD_OFF    20U
@@ -84,12 +92,19 @@ typedef enum {
 /* Sequencing ADC verification thresholds (mV on ADC pin) */
 #define SEQ_VERIFY_SCALER_MV 4000U
 #define SEQ_VERIFY_LCD_MV    2800U
+#if (BACKLIGHT_SUPPLY_5V != 0U)
+#define SEQ_VERIFY_BL_MV     4000U
+#else
 #define SEQ_VERIFY_BL_MV     9000U
+#endif
+
+/* PWM soft-start after BACKLIGHT_ON (reduces inrush when U4 is bypassed). */
+#define BL_SOFTSTART_RAMP_MS   500U
 
 /* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS.
  * If your backlight DC/DC requires non-zero PWM to start, keeping this at 0
  * will make the BL rail verification time out (DSEQ_UP_VERIFY_BL). */
-#define BACKLIGHT_DEFAULT_PWM_ON 500U
+#define BACKLIGHT_DEFAULT_PWM_ON 10U
 
 /* PGOOD timeout (Rules 6.5) */
 #define PGOOD_TIMEOUT_MS     5000U

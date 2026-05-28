@@ -160,6 +160,10 @@ uint16_t adc_get_voltage_mv(uint8_t idx)
 
 int16_t adc_get_current_ma(uint8_t idx)
 {
+#if (ENABLE_BL_CURRENT_SENSOR == 0U)
+    if (idx == 1U)
+        return -32768;
+#endif
     if (idx < CURRENT_CHANNELS) return current_ma[idx];
     return 0;
 }

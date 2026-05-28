@@ -13,6 +13,10 @@ static uint16_t last_power_ctrl_mask;
 static uint16_t last_power_ctrl_value;
 static uint32_t reset_flags_raw;
 static uint32_t boot_counter __attribute__((section(".noinit")));
+static uint8_t  bl_pwm_applied;
+static uint16_t bl_ramp_target_pwm;
+static uint16_t bl_ramp_last_pwm;
+static uint32_t bl_ramp_start_ts;
 
 /* ===== Display sequencing SM (Rules 6, 13) ===== */
 typedef enum {
@@ -178,6 +182,7 @@ void power_manager_init(void)
     last_power_ctrl_mask = 0;
     last_power_ctrl_value = 0;
     reset_flags_raw = 0;
+    bl_pwm_applied = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
     amp_active     = 0;
@@ -249,6 +254,7 @@ void power_safe_state(void)
 
     power_state    = 0;
     brightness_pwm = 0;
+    bl_pwm_applied = 0;
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
     sseq                     = STARTUP_IDLE;
@@ -287,6 +293,7 @@ void power_emergency_display_off(void)
 static void dseq_process(void)
 {
     uint32_t now = systick_ms;
+    const uint32_t bl_ramp_ms = BL_SOFTSTART_RAMP_MS;
 
     /* PGOOD check during any active UP sequence (Rules 6.2).
      * Shutdown of the display rails is driven through the fault policy:
@@ -368,16 +375,44 @@ static void dseq_process(void)
 
     case DSEQ_UP_BL_ON:
         gpio_domain_set(DOM_BACKLIGHT, 1);
-        HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
         if (brightness_pwm == 0U) {
             brightness_pwm = BACKLIGHT_DEFAULT_PWM_ON;
         }
-        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, brightness_pwm);
+        /* Start PWM at 0, then ramp up to reduce inrush/brown-out risk. */
+        (void)HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
+        /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
+        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+        bl_pwm_applied = 0;
+        bl_ramp_target_pwm = brightness_pwm;
+        bl_ramp_last_pwm = 0;
+        bl_ramp_start_ts = 0;
         dseq_timer = now;
         dseq = DSEQ_UP_VERIFY_BL;
         break;
 
     case DSEQ_UP_VERIFY_BL: {
+        if (!bl_pwm_applied) {
+            if ((now - dseq_timer) < SEQ_DELAY_BL_ON) {
+                break;
+            }
+            if (bl_ramp_start_ts == 0U) {
+                bl_ramp_start_ts = now;
+            }
+            uint32_t elapsed = now - bl_ramp_start_ts;
+            uint32_t denom = (bl_ramp_ms == 0U) ? 1U : bl_ramp_ms;
+            if (elapsed > denom) elapsed = denom;
+            uint32_t pwm = ((uint32_t)bl_ramp_target_pwm * elapsed) / denom;
+            if (pwm != (uint32_t)bl_ramp_last_pwm) {
+                __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, (uint16_t)pwm);
+                bl_ramp_last_pwm = (uint16_t)pwm;
+            }
+            if (elapsed >= denom) {
+                bl_pwm_applied = 1;
+                dseq_timer = now;
+            } else {
+                break;
+            }
+        }
         /* BACKLIGHT_POWER_M uses the same divider as SCALER/LCD (R169..R182, 4.99k/470).
          * ~12V at the rail -> ~1033mV at ADC input, restored via VDIV_MULT/VDIV_DIV.
          * SEQ_VERIFY_BL_MV=9000 is compared against the restored rail voltage. */

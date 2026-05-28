@@ -747,6 +747,8 @@ Response:
 
 Offset по каналам: `flash_cal_load()` / `CMD_CALIBRATE_OFFSET` (`Services/flash_cal.c`).
 
+**Подсветка (U4):** на части ревизий `NSM2012-05B3R` **не установлен** — `IP+` и `IP-` замкнуты, линия `BACKLIGHT_CURRENT` (PA1) не используется. В `Config/config.h`: `ENABLE_BL_CURRENT_SENSOR = 0` — в `GET_STATUS` поле `i_backlight = -32768`, авария по `I_BACKLIGHT_MAX` не ставится; `CALIBRATE_OFFSET` для канала BL оставляет дефолтный offset. Порог `SEQ_VERIFY_BL_MV` задаётся через `BACKLIGHT_SUPPLY_5V` (5 В → 4000 мВ, 12 В → 9000 мВ).
+
 ### 19.2 Каналы `Temp0/Temp1`
 
 На текущей ревизии платы NTC **не установлены**. В прошивке:

@@ -107,8 +107,16 @@ uint8_t flash_cal_calibrate(void)
         ADC_IDX_AUDIO_L_CURRENT, ADC_IDX_AUDIO_R_CURRENT
     };
 
-    for (uint8_t i = 0; i < CURRENT_CHANNELS; i++)
+    uint16_t def = (uint16_t)((uint32_t)CURRENT_VOFFSET_MV_DEFAULT * ADC_RESOLUTION / ADC_VREF_MV);
+    for (uint8_t i = 0; i < CURRENT_CHANNELS; i++) {
+#if (ENABLE_BL_CURRENT_SENSOR == 0U)
+        if (i == 1U) {
+            cal.offset_raw[i] = def;
+            continue;
+        }
+#endif
         cal.offset_raw[i] = adc_get_raw_avg(c_adc_idx[i]);
+    }
 
     uint32_t payload_len = offsetof(flash_cal_t, crc32);
     cal.crc32 = sw_crc32((const uint8_t *)&cal, payload_len);
