@@ -242,10 +242,20 @@ PY
 }
 
 cmd_get_status() {
-  uart_drain_fd
-  uart_tx_frame 0x04
-  sleep "$GET_STATUS_TX_DELAY_SEC"
-  uart_rx "$GET_STATUS_FRAME_LEN" "$GET_STATUS_TIMEOUT_SEC"
+  local attempt hex
+  for attempt in 1 2 3; do
+    uart_drain_fd
+    uart_tx_frame 0x04
+    sleep "$GET_STATUS_TX_DELAY_SEC"
+    if hex="$(uart_rx "$GET_STATUS_FRAME_LEN" "$GET_STATUS_TIMEOUT_SEC" 2>/dev/null)" \
+      && validate_get_status_hex "$hex" \
+      && validate_frame_crc "$hex"; then
+      printf '%s' "$hex"
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
 }
 
 cmd_reset_fault() {
@@ -278,7 +288,15 @@ cmd_power_ctrl() {
     uart_drain_fd
     uart_tx_frame 0x02 "$ml" "$mh" "$vl" "$vh"
     sleep "$POWER_CTRL_TX_DELAY_SEC"
-    if hex="$(uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC" 2>/dev/null)"; then
+    if hex="$(uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC" 2>/dev/null)" \
+      && validate_frame_crc "$hex" \
+      && python3 - "$hex" <<'PY'
+import sys
+b = bytes.fromhex(sys.argv[1].replace(' ', ''))
+ok = len(b) == 6 and b[0] == 0x02 and b[1] == 0x02 and b[2] == 0x01 and b[-1] == 0x03
+sys.exit(0 if ok else 1)
+PY
+    then
       printf '%s' "$hex"
       return 0
     fi

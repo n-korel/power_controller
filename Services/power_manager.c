@@ -249,8 +249,6 @@ void power_safe_state(void)
 
     power_state    = 0;
     brightness_pwm = 0;
-    last_power_ctrl_mask = 0;
-    last_power_ctrl_value = 0;
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
     sseq                     = STARTUP_IDLE;
