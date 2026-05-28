@@ -371,6 +371,9 @@ static void dseq_process(void)
     case DSEQ_UP_BL_ON:
         gpio_domain_set(DOM_BACKLIGHT, 1);
         HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
+        if (brightness_pwm == 0U) {
+            brightness_pwm = BACKLIGHT_DEFAULT_PWM_ON;
+        }
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, brightness_pwm);
         dseq_timer = now;
         dseq = DSEQ_UP_VERIFY_BL;
@@ -750,6 +753,9 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
             /* BL-only ON when SCALER+LCD already on */
             if (!input_get_pgood())
                 return 1;
+            if (brightness_pwm == 0U) {
+                brightness_pwm = BACKLIGHT_DEFAULT_PWM_ON;
+            }
             next_dseq = DSEQ_UP_BL_ON;
             apply_dseq = 1;
         }

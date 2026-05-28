@@ -86,6 +86,11 @@ typedef enum {
 #define SEQ_VERIFY_LCD_MV    2800U
 #define SEQ_VERIFY_BL_MV     9000U
 
+/* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS.
+ * If your backlight DC/DC requires non-zero PWM to start, keeping this at 0
+ * will make the BL rail verification time out (DSEQ_UP_VERIFY_BL). */
+#define BACKLIGHT_DEFAULT_PWM_ON 500U
+
 /* PGOOD timeout (Rules 6.5) */
 #define PGOOD_TIMEOUT_MS     5000U
 
