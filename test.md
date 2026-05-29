@@ -495,3 +495,43 @@ MCU does not expose SUS_S3#/PWRBTN# in GET_STATUS — not automatable over UART.
 Unavailable without Q7: BOOTLOADER_ENTER OTA, Linux fault recovery, PGOOD+Q7 power cycle
 Optional bare-board suite: make test-uart (Tests_UART/)
 make: \*\*\* [Makefile:441: test-uart-all] Error 1
+
+changes:
+По этому логу картина та же, но теперь она читается точнее.
+
+## Диагноз
+
+| Наблюдение                                           | Что это значит                                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `last_power_ctrl=0x00` после `BACKLIGHT ON`          | MCU **перезагрузился** (`power_manager_init()` обнуляет поля)                        |
+| `boot_counter` прыгает (`483365614` → `474718946` …) | Подтверждает reset, не просто reject команды                                         |
+| `state=0x03` после неудачного BL                     | После brownout срабатывал **§6.5 auto-startup** и снова поднимал только `SCALER+LCD` |
+| Токи 500–1000 mA на попытках BL                      | Сильный **бросок тока** при включении подсветки (или помехи ADC)                     |
+| `fault=0`, `dseq=0`                                  | До `FAULT_BACKLIGHT` не доходит — падает раньше, на включении BL                     |
+
+То есть прошивка с `ENABLE_BL_POWER_VERIFY=0` уже работает (иначе был бы fault), но **включение BL роняет питание MCU**, а после reset auto-startup маскировал проблему, оставляя `state=0x03`.
+
+## Что изменено сейчас
+
+1. **`ENABLE_PGOOD_AUTO_STARTUP=0`** — на этой ревизии стенда нет автоподъёма `SCALER+LCD` после PGOOD/BOR.
+2. **Магия сессии хоста в `.noinit`** — после любого `POWER_CTRL` от хоста brownout не запускает auto-start снова; сброс только при `mask=0x007F value=0`.
+3. **Более мягкий BL soft-start:**
+   - 300 ms: PWM=0, GPIO BL ещё LOW
+   - GPIO ON → 200 ms выдержка
+   - ramp PWM **2 s**, старт **2/1000**
+4. **`SEQ_BL_WAIT_SEC=4`** в тестах.
+
+Сборка: `build/POWER_Controller.hex`.
+
+## Что сделать
+
+1. **Прошить** свежий hex.
+2. Запустить `make test-uart-all`.
+3. Смотреть на попытку `BACKLIGHT ON`:
+   - **Успех:** `state=0x07`, `last_power_ctrl_mask_lo=0x04`
+   - **BOR без маскировки:** `state=0x00`, `last_power_ctrl=0x00` (без ложного «SCALER+LCD already on»)
+   - **Всё ещё reset:** смотреть просадку **VMCU / +12V** на LA при подъёме `BACKLIGHT_ON` (PA15)
+
+Если после прошивки BL всё равно не дойдёт до `0x07`, это уже почти наверняка **лимит железа** (inrush подсветки), а не UART/логика — тогда нужны ёмкость на линии BL/12V или ограничение тока на плате.
+
+Пришлите лог после новой прошивки — по `state` и `last_power_ctrl` сразу будет видно, помог ли soft-start или остался только brownout.
