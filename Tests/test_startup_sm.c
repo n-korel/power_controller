@@ -40,6 +40,7 @@ void test_init_leaves_startup_sm_idle(void)
     TEST_ASSERT_EQUAL_UINT32(0, sseq_timer);
 }
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 void test_rejected_power_ctrl_preserves_pending_aux(void)
 {
     mock_pgood = 1;
@@ -59,7 +60,9 @@ void test_rejected_power_ctrl_preserves_pending_aux(void)
     tick_ms(400);
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
 }
+#endif
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
 {
     mock_pgood = 1;
@@ -89,6 +92,7 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
 }
+#endif
 
 void test_auto_startup_suppressed_when_already_done(void)
 {
@@ -165,6 +169,7 @@ void test_startup_begin_second_call_restarts_wait_timer(void)
 
 /* ===== PGOOD=HIGH -> auto-startup (Rules §6.5) ===== */
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
 {
     mock_pgood = 1;
@@ -184,6 +189,7 @@ void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
 }
+#endif
 
 void test_pgood_high_does_not_override_nonzero_runtime_state(void)
 {
@@ -204,6 +210,7 @@ void test_pgood_high_does_not_override_nonzero_runtime_state(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
 }
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 void test_pgood_high_full_up_completes_without_backlight(void)
 {
     mock_pgood = 1;
@@ -220,6 +227,7 @@ void test_pgood_high_full_up_completes_without_backlight(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin));
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
+#endif
 
 /* ===== PGOOD=LOW within timeout window stays waiting (Rules §6.5) ===== */
 
@@ -236,6 +244,7 @@ void test_pgood_low_below_timeout_stays_waiting(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
 }
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
 {
     /* Keep PGOOD low up to the last millisecond before timeout, then flip
@@ -255,6 +264,7 @@ void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
+#endif
 
 /* ===== PGOOD=LOW past timeout -> FAULT_PGOOD_LOST (Rules §6.5, §7.1) ===== */
 
@@ -320,18 +330,26 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_leaves_startup_sm_idle);
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
     RUN_TEST(test_rejected_power_ctrl_preserves_pending_aux);
     RUN_TEST(test_host_power_ctrl_clears_pending_aux_at_up_done);
+#endif
     RUN_TEST(test_auto_startup_suppressed_when_already_done);
     RUN_TEST(test_process_without_begin_is_noop);
     RUN_TEST(test_startup_begin_arms_wait_and_captures_timer);
     RUN_TEST(test_startup_begin_is_blocked_while_fault_is_latched);
     RUN_TEST(test_startup_begin_second_call_restarts_wait_timer);
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
     RUN_TEST(test_pgood_high_triggers_auto_startup_and_returns_idle);
+#endif
     RUN_TEST(test_pgood_high_does_not_override_nonzero_runtime_state);
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
     RUN_TEST(test_pgood_high_full_up_completes_without_backlight);
+#endif
     RUN_TEST(test_pgood_low_below_timeout_stays_waiting);
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
     RUN_TEST(test_pgood_high_on_last_ms_still_triggers_auto_startup);
+#endif
     RUN_TEST(test_pgood_absent_5s_latches_fault_and_stays_safe);
     RUN_TEST(test_pgood_recovery_after_timeout_does_not_auto_startup);
     RUN_TEST(test_timeout_works_across_systick_wrap);

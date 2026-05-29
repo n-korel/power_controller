@@ -66,6 +66,8 @@ typedef enum {
  * not be enabled via POWER_CTRL. */
 #define ENABLE_AUDIO_HW      0U
 #define ENABLE_TOUCH_HW      0U
+/* Bench/display revision: host drives POWER_CTRL; no §6.5 auto-start after PGOOD/BOR. */
+#define ENABLE_PGOOD_AUTO_STARTUP  0U
 
 /* U4 (NSM2012) not populated: IP+ and IP- are jumpered; BACKLIGHT_CURRENT (PA1) is N/C.
  * Disable BL overcurrent fault and report i_backlight = -32768 in GET_STATUS. */
@@ -73,6 +75,9 @@ typedef enum {
 
 /* Backlight supply: R62=+5V_A, R63=+12V_A, R64=+24V (one populated). This board: R63 (+12V). */
 #define BACKLIGHT_SUPPLY_5V       0U   /* 0 → SEQ_VERIFY_BL_MV=9000 mV */
+/* This revision does not provide a stable BACKLIGHT_POWER_M feedback.
+ * Keep the BL sequence deterministic by skipping ADC rail verification. */
+#define ENABLE_BL_POWER_VERIFY    0U
 
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
@@ -84,6 +89,9 @@ typedef enum {
 #define SEQ_DELAY_RST_RELEASE 20U
 #define SEQ_DELAY_LCD_ON     50U
 #define SEQ_DELAY_BL_ON      20U
+/* Hold BACKLIGHT_ON GPIO low while PWM is at 0 before enabling the rail. */
+#define SEQ_DELAY_BL_GPIO_MS 300U
+#define SEQ_DELAY_BL_RAMP_HOLD_MS 200U
 #define SEQ_DELAY_PWM_OFF    10U
 #define SEQ_DELAY_BL_OFF     20U
 #define SEQ_DELAY_LCD_OFF    20U
@@ -99,12 +107,12 @@ typedef enum {
 #endif
 
 /* PWM soft-start after BACKLIGHT_ON (reduces inrush when U4 is bypassed). */
-#define BL_SOFTSTART_RAMP_MS   500U
+#define BL_SOFTSTART_RAMP_MS   2000U
 
 /* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS.
  * If your backlight DC/DC requires non-zero PWM to start, keeping this at 0
  * will make the BL rail verification time out (DSEQ_UP_VERIFY_BL). */
-#define BACKLIGHT_DEFAULT_PWM_ON 10U
+#define BACKLIGHT_DEFAULT_PWM_ON 2U
 
 /* PGOOD timeout (Rules 6.5) */
 #define PGOOD_TIMEOUT_MS     5000U

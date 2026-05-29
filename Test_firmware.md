@@ -928,3 +928,14 @@ parse_get_status_hex "$(cmd_get_status)"
 | `0x2000` | бит 13    | FAULT_SEQ_ABORT                          |
 | `0x4000` | бит 14    | FAULT_INTERNAL                           |
 | `0x2001` | биты 0+13 | SEQ_ABORT + SCALER (типично без дисплея) |
+
+stty -F /dev/ttyUSB0 115200 cs8 -cstopb -parenb raw -echo min 0 time 10
+
+exec 3<>/dev/ttyUSB0
+
+printf '\x02\x01\x00\x15\x03' >&3
+
+dd bs=1 count=64 <&3 status=none 2>/dev/null | xxd
+
+exec 3<&-
+exec 3>&-

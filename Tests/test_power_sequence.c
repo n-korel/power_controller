@@ -56,7 +56,8 @@ void test_full_up_sequence_completes_with_bl(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_SCALER_ON, dseq);
     TEST_ASSERT_EQUAL_UINT8(1, dseq_up_with_bl);
 
-    tick_ms(300);
+    tick_ms(SEQ_DELAY_SCALER_ON + SEQ_DELAY_RST_RELEASE + SEQ_DELAY_LCD_ON +
+            SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
@@ -132,7 +133,7 @@ void test_power_state_bits_set_only_after_adc_verify(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
 
-    tick_ms(1);
+    tick_ms(SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 5);
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
 }
 
@@ -177,6 +178,7 @@ void test_up_sequence_lcd_verify_timeout_triggers_seq_abort(void)
 
 void test_up_sequence_bl_verify_timeout_triggers_seq_abort(void)
 {
+#if (ENABLE_BL_POWER_VERIFY != 0U)
     mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
     mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
     /* BL ADC stays 0 */
@@ -192,6 +194,20 @@ void test_up_sequence_bl_verify_timeout_triggers_seq_abort(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_HEX8(0, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
     TEST_ASSERT_EQUAL_UINT32(0, htim17.Instance_data.CCR1);
+#else
+    seed_valid_adc();
+    mock_raw_avg[ADC_IDX_BL_POWER] = 0;
+
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    tick_ms(SEQ_DELAY_SCALER_ON + SEQ_DELAY_RST_RELEASE + SEQ_DELAY_LCD_ON +
+            SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
+
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+#endif
 }
 
 /* ===== PGOOD abort during UP (Rules §6.2) ===== */
@@ -332,6 +348,7 @@ void test_verify_timeout_boundaries_lcd_stage(void)
 
 void test_verify_timeout_boundaries_bl_stage(void)
 {
+#if (ENABLE_BL_POWER_VERIFY != 0U)
     mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
     mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
     power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
@@ -349,6 +366,21 @@ void test_verify_timeout_boundaries_bl_stage(void)
     tick_ms(1);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_BACKLIGHT);
+#else
+    seed_valid_adc();
+    mock_raw_avg[ADC_IDX_BL_POWER] = 0;
+
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    for (uint32_t i = 0; i < 1000 && dseq != DSEQ_UP_VERIFY_BL; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+
+    tick_ms(SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
+    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+#endif
 }
 
 /* ===== DOWN sequence (Rules §13.7) ===== */

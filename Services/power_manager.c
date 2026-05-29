@@ -13,10 +13,13 @@ static uint16_t last_power_ctrl_mask;
 static uint16_t last_power_ctrl_value;
 static uint32_t reset_flags_raw;
 static uint32_t boot_counter __attribute__((section(".noinit")));
+#define PWR_SESSION_MAGIC_HOST  0x484F5354U  /* 'HOST' — survives BOR, suppresses §6.5 re-entry */
+static uint32_t pwr_session_magic __attribute__((section(".noinit")));
 static uint8_t  bl_pwm_applied;
 static uint16_t bl_ramp_target_pwm;
 static uint16_t bl_ramp_last_pwm;
 static uint32_t bl_ramp_start_ts;
+static uint8_t  bl_gpio_on_applied;
 
 /* ===== Display sequencing SM (Rules 6, 13) ===== */
 typedef enum {
@@ -183,6 +186,7 @@ void power_manager_init(void)
     last_power_ctrl_value = 0;
     reset_flags_raw = 0;
     bl_pwm_applied = 0;
+    bl_gpio_on_applied = 0;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
     amp_active     = 0;
@@ -199,7 +203,9 @@ void power_manager_init(void)
     boot_counter++;
     /* После IWDG reset RAM обнуляется: без этого снова §6.5 auto-start → state=0x4B
      * сразу после host POWER_CTRL (типично BACKLIGHT ON на стенде). */
-    if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
+    if (pwr_session_magic == PWR_SESSION_MAGIC_HOST) {
+        auto_startup_done = 1;
+    } else if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
         auto_startup_done = 1;
     }
     __HAL_RCC_CLEAR_RESET_FLAGS();
@@ -255,6 +261,8 @@ void power_safe_state(void)
     power_state    = 0;
     brightness_pwm = 0;
     bl_pwm_applied = 0;
+    bl_gpio_on_applied = 0;
+    pwr_session_magic = 0;
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
     sseq                     = STARTUP_IDLE;
@@ -285,6 +293,7 @@ void power_emergency_display_off(void)
 
     power_state &= (uint8_t)~(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
     brightness_pwm = 0;
+    bl_gpio_on_applied = 0;
     dseq = DSEQ_IDLE;
     bridge_rst_active = 0;
 }
@@ -374,15 +383,15 @@ static void dseq_process(void)
     }
 
     case DSEQ_UP_BL_ON:
-        gpio_domain_set(DOM_BACKLIGHT, 1);
         if (brightness_pwm == 0U) {
             brightness_pwm = BACKLIGHT_DEFAULT_PWM_ON;
         }
-        /* Start PWM at 0, then ramp up to reduce inrush/brown-out risk. */
-        (void)HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1);
+        /* PWM at 0 while BACKLIGHT_ON stays low; GPIO comes up after SEQ_DELAY_BL_GPIO_MS. */
+        gpio_domain_set(DOM_BACKLIGHT, 0);
         /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
         bl_pwm_applied = 0;
+        bl_gpio_on_applied = 0;
         bl_ramp_target_pwm = brightness_pwm;
         bl_ramp_last_pwm = 0;
         bl_ramp_start_ts = 0;
@@ -391,8 +400,18 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_BL: {
+        if (!bl_gpio_on_applied) {
+            if ((now - dseq_timer) < SEQ_DELAY_BL_GPIO_MS) {
+                break;
+            }
+            gpio_domain_set(DOM_BACKLIGHT, 1);
+            bl_gpio_on_applied = 1;
+            bl_ramp_start_ts = 0;
+            dseq_timer = now;
+            break;
+        }
         if (!bl_pwm_applied) {
-            if ((now - dseq_timer) < SEQ_DELAY_BL_ON) {
+            if ((now - dseq_timer) < SEQ_DELAY_BL_RAMP_HOLD_MS) {
                 break;
             }
             if (bl_ramp_start_ts == 0U) {
@@ -413,6 +432,10 @@ static void dseq_process(void)
                 break;
             }
         }
+#if (ENABLE_BL_POWER_VERIFY == 0U)
+        power_state |= DOM_BACKLIGHT;
+        dseq = DSEQ_UP_DONE;
+#else
         /* BACKLIGHT_POWER_M uses the same divider as SCALER/LCD (R169..R182, 4.99k/470).
          * ~12V at the rail -> ~1033mV at ADC input, restored via VDIV_MULT/VDIV_DIV.
          * SEQ_VERIFY_BL_MV=9000 is compared against the restored rail voltage. */
@@ -423,6 +446,7 @@ static void dseq_process(void)
         } else if ((now - dseq_timer) >= SEQ_VERIFY_TIMEOUT) {
             fault_set_flag(FAULT_SEQ_ABORT | FAULT_BACKLIGHT);
         }
+#endif
         break;
     }
 
@@ -706,6 +730,14 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
     last_power_ctrl_mask = mask;
     last_power_ctrl_value = value;
 
+    const uint16_t host_domains = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
+                                             DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
+    if (mask == host_domains && value == 0U) {
+        pwr_session_magic = 0;
+    } else if (mask != 0U) {
+        pwr_session_magic = PWR_SESSION_MAGIC_HOST;
+    }
+
     /* Reject any unknown bits in mask/value (Rules §4.5 / invariant list §11: domain bits 0..6 only). */
     const uint16_t valid = (uint16_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
                                       DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
@@ -868,6 +900,7 @@ void power_force_off_domains(uint16_t domain_mask)
     }
 }
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 static void power_auto_startup(void)
 {
     /* Rules §6.5 / README §13.6 target state after PGOOD=HIGH:
@@ -880,6 +913,7 @@ static void power_auto_startup(void)
     dseq                       = DSEQ_UP_SCALER_ON;
     auto_startup_done          = 1;
 }
+#endif
 
 /* ===== Startup SM (Rules 6.5): non-blocking PGOOD wait + auto-start ===== */
 static void sseq_process(void)
@@ -888,10 +922,12 @@ static void sseq_process(void)
 
     if (input_get_pgood()) {
         sseq = STARTUP_IDLE;
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
         if (!auto_startup_done &&
             power_state == 0U && dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
             power_auto_startup();
         }
+#endif
     } else if ((systick_ms - sseq_timer) >= PGOOD_TIMEOUT_MS) {
         fault_set_flag(FAULT_PGOOD_LOST);
         /* fault_set_flag() -> apply_fault_policy() -> power_safe_state()
