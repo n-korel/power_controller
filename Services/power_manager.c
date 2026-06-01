@@ -20,6 +20,8 @@ static uint16_t bl_ramp_target_pwm;
 static uint16_t bl_ramp_last_pwm;
 static uint32_t bl_ramp_start_ts;
 static uint8_t  bl_gpio_on_applied;
+static uint32_t bl_gpio_on_ts;
+#define BL_GPIO_ON_TS_UNSET  UINT32_MAX
 
 /* ===== Display sequencing SM (Rules 6, 13) ===== */
 typedef enum {
@@ -105,7 +107,9 @@ static uint8_t  pwrbtn_active;
 static uint32_t pwrbtn_timer;
 static uint32_t sus_cooldown_ts;
 
+#if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 static void power_auto_startup(void);
+#endif
 static uint8_t power_effective_state_for_request(void);
 
 /* ===== GPIO helpers ===== */
@@ -187,6 +191,7 @@ void power_manager_init(void)
     reset_flags_raw = 0;
     bl_pwm_applied = 0;
     bl_gpio_on_applied = 0;
+    bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
     amp_active     = 0;
@@ -262,6 +267,7 @@ void power_safe_state(void)
     brightness_pwm = 0;
     bl_pwm_applied = 0;
     bl_gpio_on_applied = 0;
+    bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
     pwr_session_magic = 0;
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
@@ -294,6 +300,7 @@ void power_emergency_display_off(void)
     power_state &= (uint8_t)~(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
     brightness_pwm = 0;
     bl_gpio_on_applied = 0;
+    bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
     dseq = DSEQ_IDLE;
     bridge_rst_active = 0;
 }
@@ -309,7 +316,10 @@ static void dseq_process(void)
      * fault_set_flag(FAULT_PGOOD_LOST) -> power_force_off_domains(ALL)
      * already calls power_emergency_display_off() internally. */
     if (dseq != DSEQ_IDLE && dseq < DSEQ_DN_PWM_ZERO) {
-        if (!input_get_pgood()) {
+        uint8_t in_bl_grace = bl_gpio_on_applied &&
+                              (bl_gpio_on_ts != BL_GPIO_ON_TS_UNSET) &&
+                              ((now - bl_gpio_on_ts) < SEQ_BL_PGOOD_GRACE_MS);
+        if (!in_bl_grace && !input_get_pgood()) {
             fault_set_flag(FAULT_PGOOD_LOST | FAULT_SEQ_ABORT);
             return;
         }
@@ -392,6 +402,7 @@ static void dseq_process(void)
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
         bl_pwm_applied = 0;
         bl_gpio_on_applied = 0;
+        bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
         bl_ramp_target_pwm = brightness_pwm;
         bl_ramp_last_pwm = 0;
         bl_ramp_start_ts = 0;
@@ -406,6 +417,7 @@ static void dseq_process(void)
             }
             gpio_domain_set(DOM_BACKLIGHT, 1);
             bl_gpio_on_applied = 1;
+            bl_gpio_on_ts = now;
             bl_ramp_start_ts = 0;
             dseq_timer = now;
             break;

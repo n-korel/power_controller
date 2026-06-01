@@ -109,6 +109,9 @@ typedef enum {
 /* PWM soft-start after BACKLIGHT_ON (reduces inrush when U4 is bypassed). */
 #define BL_SOFTSTART_RAMP_MS   2000U
 
+/* Window after BACKLIGHT_ON GPIO HIGH where a PGOOD dip is ignored (BL inrush). */
+#define SEQ_BL_PGOOD_GRACE_MS  1000U
+
 /* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS.
  * If your backlight DC/DC requires non-zero PWM to start, keeping this at 0
  * will make the BL rail verification time out (DSEQ_UP_VERIFY_BL). */

@@ -237,6 +237,49 @@ void test_pgood_lost_during_up_aborts_with_both_flags(void)
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
 }
 
+void test_pgood_dip_in_bl_grace_window_does_not_abort(void)
+{
+    seed_valid_adc();
+    mock_pgood = 1;
+
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    for (uint32_t i = 0; i < 2000 && dseq != DSEQ_UP_VERIFY_BL; i++)
+        tick_ms(1);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+
+    tick_ms(SEQ_DELAY_BL_GPIO_MS);
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+
+    mock_pgood = 0;
+    tick_ms(SEQ_BL_PGOOD_GRACE_MS - 1);
+
+    TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_PGOOD_LOST | FAULT_SEQ_ABORT));
+    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
+}
+
+void test_pgood_dip_after_bl_grace_window_aborts(void)
+{
+    seed_valid_adc();
+    mock_pgood = 1;
+
+    power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+                       DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
+
+    for (uint32_t i = 0; i < 2000 && dseq != DSEQ_UP_VERIFY_BL; i++)
+        tick_ms(1);
+    tick_ms(SEQ_DELAY_BL_GPIO_MS);
+    tick_ms(SEQ_BL_PGOOD_GRACE_MS);
+
+    mock_pgood = 0;
+    tick_ms(2);
+
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_PGOOD_LOST);
+    TEST_ASSERT_TRUE(fault_flags_set & FAULT_SEQ_ABORT);
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+}
+
 void test_pgood_lost_during_down_does_not_introduce_unsafe_transitions(void)
 {
     /* Contract focus: DOWN sequencing should remain safe and monotonic even if
@@ -496,6 +539,8 @@ int main(void)
     RUN_TEST(test_up_sequence_lcd_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_up_sequence_bl_verify_timeout_triggers_seq_abort);
     RUN_TEST(test_pgood_lost_during_up_aborts_with_both_flags);
+    RUN_TEST(test_pgood_dip_in_bl_grace_window_does_not_abort);
+    RUN_TEST(test_pgood_dip_after_bl_grace_window_aborts);
     RUN_TEST(test_pgood_lost_during_down_does_not_introduce_unsafe_transitions);
     RUN_TEST(test_full_down_sequence_orders_pwm_bl_lcd_rst_scaler);
     RUN_TEST(test_bloff_only_sequence_10ms_delay_then_gpio);
