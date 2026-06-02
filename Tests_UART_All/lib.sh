@@ -80,10 +80,14 @@ periph_prepare_zero_load() {
   periph_all_domains_off || return 1
   sleep 0.2
   gs="$(cmd_get_status)" || return 1
-  if periph_currents_near_zero "$gs"; then
+  # Важный нюанс: при отсутствии калибровки во flash токи на state=0 могут быть далеко от нуля,
+  # и expect_currents_in_window печатает "FAIL: ..." как часть диагностики. Здесь это ожидаемо —
+  # мы сразу запускаем CALIBRATE_OFFSET. Поэтому проверяем "тихо" и не шумим "FAIL" в логе.
+  if periph_currents_near_zero "$gs" >/dev/null 2>&1; then
     log_info "current offsets OK (±${TELEMETRY_I_ZERO_MAX_MA} mA at state=0)"
     return 0
   fi
+  periph_log_status "$gs" "before calibrate"
   log_info "CALIBRATE_OFFSET (zero load, state=0; else spurious FAULT_SCALER/AUDIO)"
   hex="$(cmd_calibrate_offset)" || {
     log_fail "CALIBRATE_OFFSET: no ACK"

@@ -566,6 +566,9 @@ print(f'inputs=0x{inputs:02x}')
 print(f'dseq={dseq}')
 print(f'last_power_ctrl_mask_lo=0x{last_mask_lo:02x}')
 print(f'last_power_ctrl_value_lo=0x{last_value_lo:02x}')
+bor_diag = {0xE1:'bl_pre',0xE2:'bl_on',0xE3:'scaler_pre',0xE4:'scaler_on',0xE5:'lcd_pre',0xE6:'lcd_on'}
+if last_value_lo in bor_diag:
+    print(f'bor_diag={bor_diag[last_value_lo]}')
 print(f'reset_flags_raw=0x{rf:08x}')
 print(f'boot_counter={bc}')
 print(f'pgood={(inputs >> 6) & 1}')

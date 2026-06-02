@@ -57,7 +57,7 @@ void test_full_up_sequence_completes_with_bl(void)
     TEST_ASSERT_EQUAL_UINT8(1, dseq_up_with_bl);
 
     tick_ms(SEQ_DELAY_SCALER_ON + SEQ_DELAY_RST_RELEASE + SEQ_DELAY_LCD_ON +
-            SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
+            SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
@@ -133,7 +133,7 @@ void test_power_state_bits_set_only_after_adc_verify(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
 
-    tick_ms(SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 5);
+    tick_ms(SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 5);
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
 }
 
@@ -202,7 +202,7 @@ void test_up_sequence_bl_verify_timeout_triggers_seq_abort(void)
                        DOM_SCALER | DOM_LCD | DOM_BACKLIGHT);
 
     tick_ms(SEQ_DELAY_SCALER_ON + SEQ_DELAY_RST_RELEASE + SEQ_DELAY_LCD_ON +
-            SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
+            SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
 
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
@@ -249,9 +249,6 @@ void test_pgood_dip_in_bl_grace_window_does_not_abort(void)
         tick_ms(1);
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
 
-    tick_ms(SEQ_DELAY_BL_GPIO_MS);
-    TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
-
     mock_pgood = 0;
     tick_ms(SEQ_BL_PGOOD_GRACE_MS - 1);
 
@@ -269,7 +266,6 @@ void test_pgood_dip_after_bl_grace_window_aborts(void)
 
     for (uint32_t i = 0; i < 2000 && dseq != DSEQ_UP_VERIFY_BL; i++)
         tick_ms(1);
-    tick_ms(SEQ_DELAY_BL_GPIO_MS);
     tick_ms(SEQ_BL_PGOOD_GRACE_MS);
 
     mock_pgood = 0;
@@ -420,7 +416,7 @@ void test_verify_timeout_boundaries_bl_stage(void)
         tick_ms(1);
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_VERIFY_BL, dseq);
 
-    tick_ms(SEQ_DELAY_BL_GPIO_MS + SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
+    tick_ms(SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
 #endif

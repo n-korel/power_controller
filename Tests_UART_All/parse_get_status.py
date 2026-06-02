@@ -42,6 +42,16 @@ def parse_frame(raw: bytes) -> dict[str, int]:
     out["dseq"] = data[26] if len(data) >= 27 else None
     out["last_power_ctrl_mask_lo"] = data[27] if len(data) >= 29 else None
     out["last_power_ctrl_value_lo"] = data[28] if len(data) >= 29 else None
+    bor_diag_map = {
+        0xE1: "bl_pre",
+        0xE2: "bl_on",
+        0xE3: "scaler_pre",
+        0xE4: "scaler_on",
+        0xE5: "lcd_pre",
+        0xE6: "lcd_on",
+    }
+    vlo = out["last_power_ctrl_value_lo"]
+    out["bor_diag"] = bor_diag_map.get(vlo) if vlo is not None else None
     return out
 
 
@@ -64,6 +74,8 @@ def main() -> int:
             print(f"{k}=0x{v:04x}" if k == "fault_flags" else f"{k}=0x{v:02x}")
         elif k == "dseq":
             print(f"dseq={v}")
+        elif k == "bor_diag":
+            print(f"bor_diag={v}")
         else:
             print(f"{k}={v}")
     print(f"pgood={(fields['inputs'] >> 6) & 1}")

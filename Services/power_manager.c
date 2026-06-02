@@ -15,6 +15,37 @@ static uint32_t reset_flags_raw;
 static uint32_t boot_counter __attribute__((section(".noinit")));
 #define PWR_SESSION_MAGIC_HOST  0x484F5354U  /* 'HOST' — survives BOR, suppresses §6.5 re-entry */
 static uint32_t pwr_session_magic __attribute__((section(".noinit")));
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+#define BOR_DIAG_MARKER_BL_PRE     0xE1U
+#define BOR_DIAG_MARKER_BL_ON      0xE2U
+#define BOR_DIAG_MARKER_SCALER_PRE 0xE3U
+#define BOR_DIAG_MARKER_SCALER_ON  0xE4U
+#define BOR_DIAG_MARKER_LCD_PRE    0xE5U
+#define BOR_DIAG_MARKER_LCD_ON     0xE6U
+static uint8_t bor_diag_marker __attribute__((section(".noinit")));
+static uint8_t bor_diag_marker_inv __attribute__((section(".noinit")));
+
+static uint8_t bor_diag_valid(void)
+{
+    uint8_t m = bor_diag_marker;
+    if (m < BOR_DIAG_MARKER_BL_PRE || m > BOR_DIAG_MARKER_LCD_ON) {
+        return 0;
+    }
+    return bor_diag_marker_inv == (uint8_t)~m;
+}
+
+static void bor_diag_set(uint8_t marker)
+{
+    bor_diag_marker = marker;
+    bor_diag_marker_inv = (uint8_t)~marker;
+}
+
+static void bor_diag_clear(void)
+{
+    bor_diag_marker = 0;
+    bor_diag_marker_inv = 0;
+}
+#endif
 static uint8_t  bl_pwm_applied;
 static uint16_t bl_ramp_target_pwm;
 static uint16_t bl_ramp_last_pwm;
@@ -206,6 +237,13 @@ void power_manager_init(void)
 #if !defined(UNIT_TEST)
     reset_flags_raw = RCC->CSR;
     boot_counter++;
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+    if (bor_diag_valid()) {
+        /* Latched reset context marker, emitted via GET_STATUS.last_power_ctrl_value_lo. */
+        last_power_ctrl_value = bor_diag_marker;
+    }
+    bor_diag_clear();
+#endif
     /* После IWDG reset RAM обнуляется: без этого снова §6.5 auto-start → state=0x4B
      * сразу после host POWER_CTRL (типично BACKLIGHT ON на стенде). */
     if (pwr_session_magic == PWR_SESSION_MAGIC_HOST) {
@@ -269,6 +307,9 @@ void power_safe_state(void)
     bl_gpio_on_applied = 0;
     bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
     pwr_session_magic = 0;
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+    bor_diag_clear();
+#endif
     dseq                     = DSEQ_IDLE;
     aseq                     = ASEQ_IDLE;
     sseq                     = STARTUP_IDLE;
@@ -301,6 +342,9 @@ void power_emergency_display_off(void)
     brightness_pwm = 0;
     bl_gpio_on_applied = 0;
     bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+    bor_diag_clear();
+#endif
     dseq = DSEQ_IDLE;
     bridge_rst_active = 0;
 }
@@ -331,7 +375,13 @@ static void dseq_process(void)
 
     /* === UP === */
     case DSEQ_UP_SCALER_ON:
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_SCALER_PRE);
+#endif
         gpio_domain_set(DOM_SCALER, 1);
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_SCALER_ON);
+#endif
         dseq_timer = now;
         dseq = DSEQ_UP_WAIT_SCALER;
         break;
@@ -366,7 +416,13 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_LCD_ON:
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_LCD_PRE);
+#endif
         gpio_domain_set(DOM_LCD, 1);
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_LCD_ON);
+#endif
         dseq_timer = now;
         dseq = DSEQ_UP_WAIT_LCD;
         break;
@@ -393,16 +449,22 @@ static void dseq_process(void)
     }
 
     case DSEQ_UP_BL_ON:
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_BL_PRE);
+#endif
         if (brightness_pwm == 0U) {
             brightness_pwm = BACKLIGHT_DEFAULT_PWM_ON;
         }
-        /* PWM at 0 while BACKLIGHT_ON stays low; GPIO comes up after SEQ_DELAY_BL_GPIO_MS. */
-        gpio_domain_set(DOM_BACKLIGHT, 0);
+        /* Apply initial PWM first, then assert BACKLIGHT_ON. */
         /* cppcheck-suppress duplicateValueTernary ; HAL macro expands to channel ternary */
-        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
+        __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, brightness_pwm);
         bl_pwm_applied = 0;
-        bl_gpio_on_applied = 0;
-        bl_gpio_on_ts = BL_GPIO_ON_TS_UNSET;
+        gpio_domain_set(DOM_BACKLIGHT, 1);
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_set(BOR_DIAG_MARKER_BL_ON);
+#endif
+        bl_gpio_on_applied = 1;
+        bl_gpio_on_ts = now;
         bl_ramp_target_pwm = brightness_pwm;
         bl_ramp_last_pwm = 0;
         bl_ramp_start_ts = 0;
@@ -411,17 +473,6 @@ static void dseq_process(void)
         break;
 
     case DSEQ_UP_VERIFY_BL: {
-        if (!bl_gpio_on_applied) {
-            if ((now - dseq_timer) < SEQ_DELAY_BL_GPIO_MS) {
-                break;
-            }
-            gpio_domain_set(DOM_BACKLIGHT, 1);
-            bl_gpio_on_applied = 1;
-            bl_gpio_on_ts = now;
-            bl_ramp_start_ts = 0;
-            dseq_timer = now;
-            break;
-        }
         if (!bl_pwm_applied) {
             if ((now - dseq_timer) < SEQ_DELAY_BL_RAMP_HOLD_MS) {
                 break;
@@ -463,6 +514,9 @@ static void dseq_process(void)
     }
 
     case DSEQ_UP_DONE:
+#if (ENABLE_BOR_DIAG_MARKER != 0U)
+        bor_diag_clear();
+#endif
         if (auto_startup_pending_aux) {
             /* Board revision may not populate TOUCH/AUDIO hardware. */
 #if (ENABLE_TOUCH_HW != 0U)
@@ -765,6 +819,11 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 #endif
 #if (ENABLE_AUDIO_HW == 0U)
     if ((mask & DOM_AUDIO) && (value & DOM_AUDIO)) {
+        return 1;
+    }
+#endif
+#if (ENABLE_BACKLIGHT_HW == 0U)
+    if ((mask & DOM_BACKLIGHT) && (value & DOM_BACKLIGHT)) {
         return 1;
     }
 #endif

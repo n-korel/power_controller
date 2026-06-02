@@ -8,10 +8,18 @@ require_tty
 uart_stty
 uart_flush
 uart_open
+ok=0
 for _ in 1 2 3; do
-  cmd_ping_probe_ready 0.25 >/dev/null 2>&1 || true
+  if cmd_ping_probe_ready 0.25 >/dev/null 2>&1; then
+    ok=1
+    break
+  fi
   sleep 0.05
 done
 uart_close
 uart_flush
-log_pass "Port ${UART_DEVICE} ready (${UART_BAUD} 8N1 raw)"
+if [[ "$ok" -eq 1 ]]; then
+  log_pass "Port ${UART_DEVICE} ready (${UART_BAUD} 8N1 raw); PING OK"
+else
+  die "Port ${UART_DEVICE} configured but no PING ответ (проверьте UART_DEVICE, RX/TX, GND, уровень 3.3V)"
+fi

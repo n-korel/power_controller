@@ -897,6 +897,85 @@ parse_get_status_hex "$(cmd_get_status)"
 
 ---
 
+## Диагностика BACKLIGHT: BOR vs PGOOD (bench)
+
+Подтверждено осциллографом: при `BACKLIGHT_ON` → HIGH просадка **3.3V_A (VMCU)** с ~3.3 V до **~2.8 V** → срабатывание BOR, полный reset MCU.
+
+### Два сценария сбоя при включении BL
+
+| Сценарий | Что происходит | Grace period (`SEQ_BL_PGOOD_GRACE_MS`) |
+|----------|----------------|----------------------------------------|
+| **A. BOR** | VMCU ниже порога BOR (~2.8 V), MCU сбрасывается до обработки fault | **Не помогает** — reset уже произошёл |
+| **B. PGOOD-глитч** | PGOOD просаживается >20 ms, `fault_set_flag(PGOOD\|SEQ_ABORT)`, MCU работает | **Может помочь** — блокирует fault в окне inrush |
+
+### GET_STATUS: что смотреть после `POWER_CTRL BACKLIGHT ON`
+
+Поля в кадре GET_STATUS (см. `contract/protocol.yaml`, offset 25–32):
+
+| Поле | BOR (сценарий A) | PGOOD/fault (сценарий B) | Успех |
+|------|------------------|---------------------------|-------|
+| `state` | `0x00` | `0x00` или частично ON | `0x07` |
+| `fault_flags` | `0x0000` | `0x0080` / `0x2080` типично | `0x0000` |
+| `last_power_ctrl_mask_lo` | **`0x00`** | **`0x04`** (запрос сохранился) | `0x04` или `0x07` |
+| `dseq` | `0` | может быть ≠0 до fault | `0` после завершения |
+| `pgood` | `1` *сейчас* | может быть `1` после глитча | `1` |
+
+**Главный критерий reset во время BL:** хост отправил BL (`mask_lo` содержит `0x04`), а в ответе **`last_power_ctrl_mask_lo=0x00`**.  
+Поле обнуляется только в `power_manager_init()` после hardware reset. `power_safe_state()` его **не** трогает.
+
+### Почему `reset_flags_raw=0x0c800003` не однозначен
+
+Биты 31–24 = `0x0C`: `PORRSTF` (bit 27) + `PINRSTF` (bit 26).
+
+- `PORRSTF=1` — и при **холодном включении**, и при **BOR** (один флаг POR/PDR в RCC).
+- Значение **одинаково** после каждого boot → не отличает «первое включение» от «BOR при BL».
+- `boot_counter` в `.noinit` при глубокой просадке SRAM **ненадёжен**.
+
+Для диагностики опираться на **`last_power_ctrl_mask_lo`**, не на `reset_flags_raw`.
+
+### BOR-маркер в `last_power_ctrl_value_lo` (`ENABLE_BOR_DIAG_MARKER=1`)
+
+После reset прошивка лочит в **value_lo** последний этап секвенсера (коды `0xE1`…`0xE6`, не обычный `POWER_CTRL`). В `.noinit` хранится пара `marker` + `~marker`. Парсер / `lib.sh` → строка `bor_diag=…`.
+
+Если после BL reset видите `value_lo=0x00` и `boot_counter` — случайное большое число, **SRAM при BOR не удержала** даже breadcrumb; тогда остаётся только `mask_lo=0x00` + осциллограф на 3.3V.
+
+| value_lo | bor_diag     | Этап |
+|----------|--------------|------|
+| `0xE3`   | `scaler_pre` | перед `SCALER_POWER_ON` |
+| `0xE4`   | `scaler_on`  | после GPIO SCALER ON |
+| `0xE5`   | `lcd_pre`    | перед `LCD_POWER_ON` |
+| `0xE6`   | `lcd_on`     | после GPIO LCD ON |
+| `0xE1`   | `bl_pre`     | перед BL ON (PWM) |
+| `0xE2`   | `bl_on`      | после `BACKLIGHT_ON` HIGH |
+
+При провале BL: `mask_lo=0x00` + `bor_diag=bl_on` → reset на включении подсветки. Если `bor_diag=scaler_on`/`lcd_on` — сбой на более раннем шаге UP.
+
+### Прошивка: grace period и `ENABLE_BACKLIGHT_HW`
+
+- **`SEQ_BL_PGOOD_GRACE_MS`** (1000 ms) — после GPIO `BACKLIGHT_ON` HIGH игнорируется краткий провал PGOOD в `dseq_process()`.
+- **`bl_gpio_on_ts`** — sentinel `UINT32_MAX` = «не установлено» (защита от ложного grace при `ts=0`).
+- **`ENABLE_BACKLIGHT_HW`** в `config.h`:
+  - `1` — BL ON разрешён (анализ / нормальная работа);
+  - `0` — BL ON отклоняется с ACK `status=0x01` (временная защита от BOR-loop на неисправной ревизии).
+
+### UART-тесты (`Tests_UART_All`)
+
+```bash
+bash Tests_UART_All/03_display_scaler_lcd_on.sh   # база: state=0x03
+bash Tests_UART_All/05_backlight_brightness.sh    # ключевой BL-тест
+```
+
+При `ENABLE_BACKLIGHT_HW=0` suite ставит **SKIP** на BL-зависимые скрипты (`05`, `08`, `11`–`15`), SCALER+LCD (`03`, `04`, `06`, `09`) продолжают выполняться.
+
+### Аппаратный fix (после подтверждения BOR)
+
+1. Осциллограф на **3.3V_A** в момент `BACKLIGHT_ON` → HIGH.
+2. Ёмкость / ESR на ветке MCU, развязка возвратных токов BL.
+3. Ограничение inrush BL-источника (soft-start, токоограничение).
+4. После fix: `ENABLE_BACKLIGHT_HW=1`, повтор `05_backlight_brightness.sh` → ожидание `state=0x07`, `last_power_ctrl_mask_lo≠0x00`.
+
+---
+
 ## Быстрый справочник: кадры UART
 
 | Команда                             | Hex кадр                     | Ожидаемый ответ             |

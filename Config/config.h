@@ -66,6 +66,8 @@ typedef enum {
  * not be enabled via POWER_CTRL. */
 #define ENABLE_AUDIO_HW      0U
 #define ENABLE_TOUCH_HW      0U
+/* 1 = allow BACKLIGHT ON; 0 = reject BL ON in POWER_CTRL (BOR mitigation, no BL UART tests). */
+#define ENABLE_BACKLIGHT_HW  1U
 /* Bench/display revision: host drives POWER_CTRL; no §6.5 auto-start after PGOOD/BOR. */
 #define ENABLE_PGOOD_AUTO_STARTUP  0U
 
@@ -78,6 +80,9 @@ typedef enum {
 /* This revision does not provide a stable BACKLIGHT_POWER_M feedback.
  * Keep the BL sequence deterministic by skipping ADC rail verification. */
 #define ENABLE_BL_POWER_VERIFY    0U
+/* Diagnostic marker in GET_STATUS.last_power_ctrl_value_lo (0xE1..0xE6)
+ * latched from .noinit across reset: BL/SCALER/LCD pre+on stages. */
+#define ENABLE_BOR_DIAG_MARKER    1U
 
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
@@ -89,8 +94,6 @@ typedef enum {
 #define SEQ_DELAY_RST_RELEASE 20U
 #define SEQ_DELAY_LCD_ON     50U
 #define SEQ_DELAY_BL_ON      20U
-/* Hold BACKLIGHT_ON GPIO low while PWM is at 0 before enabling the rail. */
-#define SEQ_DELAY_BL_GPIO_MS 300U
 #define SEQ_DELAY_BL_RAMP_HOLD_MS 200U
 #define SEQ_DELAY_PWM_OFF    10U
 #define SEQ_DELAY_BL_OFF     20U
@@ -112,10 +115,8 @@ typedef enum {
 /* Window after BACKLIGHT_ON GPIO HIGH where a PGOOD dip is ignored (BL inrush). */
 #define SEQ_BL_PGOOD_GRACE_MS  1000U
 
-/* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS.
- * If your backlight DC/DC requires non-zero PWM to start, keeping this at 0
- * will make the BL rail verification time out (DSEQ_UP_VERIFY_BL). */
-#define BACKLIGHT_DEFAULT_PWM_ON 2U
+/* Default backlight PWM used when BACKLIGHT is enabled before any SET_BRIGHTNESS. */
+#define BACKLIGHT_DEFAULT_PWM_ON 50U
 
 /* PGOOD timeout (Rules 6.5) */
 #define PGOOD_TIMEOUT_MS     5000U
