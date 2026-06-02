@@ -10,7 +10,12 @@ uart_open
 periph_prepare_zero_load || die "prepare failed"
 periph_display_scaler_lcd_on >/dev/null || die "could not enable SCALER+LCD"
 
-hex="$(cmd_get_status)" || die "no GET_STATUS under load"
+# После CALIBRATE_OFFSET и секвенса ON токи в GET_STATUS могут быть 0 несколько опросов (ADC/фильтр).
+gs="$(periph_wait_status_load_ma i_lcd "$LOAD_I_MIN_MA" 0x03)" \
+  || die "no stable i_lcd under load (waited ${STATE_POLL_TRIES:-40}×${STATE_POLL_INTERVAL_SEC:-0.1}s)"
+gs="$(periph_wait_status_load_ma i_scaler "$LOAD_I_MIN_MA" 0x03)" \
+  || die "no stable i_scaler under load"
+hex="$gs"
 parse_get_status_hex "$hex"
 
 export LOAD_I_MIN_MA LOAD_I_MAX_MA LOAD_I_CHANNELS

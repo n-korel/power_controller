@@ -68,8 +68,9 @@ typedef enum {
 #define ENABLE_TOUCH_HW      0U
 /* 1 = allow BACKLIGHT ON; 0 = reject BL ON in POWER_CTRL (BOR mitigation, no BL UART tests). */
 #define ENABLE_BACKLIGHT_HW  1U
-/* Bench/display revision: host drives POWER_CTRL; no §6.5 auto-start after PGOOD/BOR. */
-#define ENABLE_PGOOD_AUTO_STARTUP  0U
+/* §6.1: after PGOOD=HIGH include BACKLIGHT in display auto-startup (full §13.2 UP). */
+#define ENABLE_BACKLIGHT_AUTO_STARTUP  1U
+#define ENABLE_PGOOD_AUTO_STARTUP  1U
 
 /* U4 (NSM2012) not populated: IP+ and IP- are jumpered; BACKLIGHT_CURRENT (PA1) is N/C.
  * Disable BL overcurrent fault and report i_backlight = -32768 in GET_STATUS. */

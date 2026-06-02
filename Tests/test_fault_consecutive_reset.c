@@ -254,6 +254,7 @@ void test_v5_reset_does_not_clear_v3v3_consecutive_counter(void)
     assert_peer_confirms_after_local_reset(FAULT_V5_RANGE, FAULT_V3V3_RANGE);
 }
 
+#if (ENABLE_BL_CURRENT_SENSOR != 0U)
 void test_lcd_current_reset_does_not_clear_backlight_consecutive_counter(void)
 {
     mock_power_state   = DOM_LCD | DOM_BACKLIGHT;
@@ -267,6 +268,7 @@ void test_lcd_current_reset_does_not_clear_backlight_consecutive_counter(void)
     mock_current_ma[0] = 0;
     assert_peer_confirms_after_local_reset(FAULT_LCD, FAULT_BACKLIGHT);
 }
+#endif
 
 void test_scaler_current_reset_does_not_clear_lcd_consecutive_counter(void)
 {
@@ -331,7 +333,9 @@ int main(void)
     RUN_TEST(test_v24_reset_does_not_clear_v12_consecutive_counter);
 #endif
     RUN_TEST(test_v5_reset_does_not_clear_v3v3_consecutive_counter);
+#if (ENABLE_BL_CURRENT_SENSOR != 0U)
     RUN_TEST(test_lcd_current_reset_does_not_clear_backlight_consecutive_counter);
+#endif
     RUN_TEST(test_scaler_current_reset_does_not_clear_lcd_consecutive_counter);
     RUN_TEST(test_audio_l_reset_does_not_clear_audio_r_consecutive_counter);
     RUN_TEST(test_faultz_reset_does_not_clear_pgood_consecutive_counter);

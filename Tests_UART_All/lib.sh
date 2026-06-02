@@ -16,7 +16,10 @@ periph_test_needs_display() {
     04_telemetry_under_load.sh|05_backlight_brightness.sh|06_reset_bridge_display.sh|\
     08_display_shutdown.sh|09_fault_lcd_current.sh|11_backlight_only_off.sh|\
     12_all_at_once_up.sh|13_fault_recovery_display.sh|14_set_brightness_boundary.sh|\
-    15_display_resequence.sh) return 0 ;;
+    15_display_resequence.sh|16_stress_get_status_load.sh|17_iwdg_stress_load.sh|\
+    18_fault_v12_under_load.sh|19_fault_scaler_current.sh|20_fault_backlight_current.sh|\
+    21_fault_audio_current.sh|22_fault_reserved_display.sh|26_set_brightness_no_bl.sh|\
+    27_set_brightness_neg.sh|28_bl_bor_diag.sh|29_calibrate_offset_neg_display.sh) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -177,7 +180,7 @@ periph_display_scaler_lcd_on() {
   # без clear-mask тест ошибочно думает, что включены только SCALER+LCD.
   if [[ -n "${gs:-}" ]] && expect_state_bits "$gs" 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" \
     && expect_fault_flags "$gs" "0x0000"; then
-    log_info "SCALER+LCD already on" >&2
+    log_info "display path already on (state has SCALER+LCD)" >&2
     printf '%s' "$gs"
     return 0
   fi
@@ -353,4 +356,136 @@ fault_set_i_lcd_max_ma() {
 
 fault_restore_i_lcd_max() {
   fault_set_i_lcd_max_ma "${THRESH_I_LCD_DEFAULT_MA:-2000}"
+}
+
+# Ток (мА) из GET_STATUS; канал: i_lcd | i_scaler | i_backlight | i_audio_l | i_audio_r
+periph_get_current_ma() {
+  local hex=$1 channel=$2
+  export CHANNEL="$channel"
+  python3 - "$hex" <<'PY'
+import os, struct, sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
+if len(raw) != 42:
+    sys.exit(1)
+data = raw[3:40]
+offs = {'i_lcd': 8, 'i_backlight': 10, 'i_scaler': 12, 'i_audio_l': 14, 'i_audio_r': 16}
+ch = os.environ.get('CHANNEL', '')
+if ch not in offs:
+    sys.exit(1)
+v = struct.unpack_from('<h', data, offs[ch])[0]
+print(v)
+PY
+}
+
+# Свежий GET_STATUS после ON: state OK и ток канала > 0 (ADC/шунт после секвенса)
+periph_wait_status_load_ma() {
+  local channel=$1
+  local min_ma=${2:-3}
+  local want_state=${3:-0x03}
+  local clear_mask=${4:-${PERIPH_PREP_NONDISPLAY_MASK_HEX:-0x78}}
+  local tries=${5:-${STATE_POLL_TRIES:-40}}
+  local i hex ma
+  for ((i = 1; i <= tries; i++)); do
+    sleep "${STATE_POLL_INTERVAL_SEC:-0.1}"
+    hex="$(cmd_get_status)" || continue
+    expect_state_bits "$hex" "$want_state" "$clear_mask" 2>/dev/null || continue
+    ma="$(periph_get_current_ma "$hex" "$channel" 2>/dev/null)" || continue
+    if (( ma >= min_ma )); then
+      printf '%s' "$hex"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# I_*_MAX ниже измеренной нагрузки (FAULT_CONFIRM_COUNT подряд в прошивке)
+periph_fault_trap_i_ma() {
+  local hex=$1 channel=$2 setter=$3
+  local margin="${4:-${THRESH_I_TRAP_MARGIN_MA:-15}}"
+  local i_ma trap
+  i_ma="$(periph_get_current_ma "$hex" "$channel" 2>/dev/null)" || i_ma=""
+  if [[ -z "$i_ma" ]] || (( i_ma <= 0 )); then
+    hex="$(cmd_get_status 2>/dev/null)" || return 1
+    i_ma="$(periph_get_current_ma "$hex" "$channel")" || return 1
+  fi
+  if (( i_ma <= 0 )); then
+    log_fail "${channel}=${i_ma} mA: need positive load for overcurrent trap" >&2
+    return 1
+  fi
+  if (( i_ma > margin )); then
+    trap=$((i_ma - margin))
+  else
+    trap=$((i_ma > 10 ? i_ma - 10 : i_ma / 2))
+  fi
+  if (( trap < 5 )); then trap=5; fi
+  if (( i_ma <= trap )); then
+    log_skip "${channel}=${i_ma} mA: cannot trap below load (I_MAX=${trap} mA)"
+    return 2
+  fi
+  log_info "${channel} load=${i_ma} mA → trap I_MAX=${trap} mA" >&2
+  "$setter" "$trap"
+}
+
+periph_fault_wait_latched() {
+  local flag=$1
+  local tries=${2:-${FAULT_WAIT_TRIES:-40}}
+  fault_wait_flags $((flag)) "$tries"
+}
+
+fault_set_i_bl_max_ma() {
+  local ma=$1
+  local lo=$((ma & 0xff)) hi=$(((ma >> 8) & 0xff))
+  cmd_set_thresholds_retry 0x0200 "$lo" "$hi"
+}
+
+fault_restore_i_bl_max() {
+  fault_set_i_bl_max_ma "${THRESH_I_BL_DEFAULT_MA:-3000}"
+}
+
+fault_set_i_scaler_max_ma() {
+  local ma=$1
+  local lo=$((ma & 0xff)) hi=$(((ma >> 8) & 0xff))
+  cmd_set_thresholds_retry 0x0400 "$lo" "$hi"
+}
+
+fault_restore_i_scaler_max() {
+  fault_set_i_scaler_max_ma "${THRESH_I_SCALER_DEFAULT_MA:-1500}"
+}
+
+fault_set_i_audio_lr_max_ma() {
+  local ma=$1
+  local lo=$((ma & 0xff)) hi=$(((ma >> 8) & 0xff))
+  cmd_set_thresholds_retry 0x1800 "$lo" "$hi" "$lo" "$hi"
+}
+
+fault_restore_i_audio_lr_max() {
+  fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-800}"
+}
+
+# После успешного BL ON: last_power_ctrl сохранён, нет BOR-маркера 0xE1..0xE6
+periph_expect_bl_power_ctrl_ok() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
+if len(raw) != 42:
+    sys.exit(1)
+data = raw[3:40]
+mask_lo = data[27]
+value_lo = data[28]
+bor = {0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6}
+ok = True
+if mask_lo == 0:
+    print('FAIL: last_power_ctrl_mask_lo=0x00 (MCU reset during BL?)', file=sys.stderr)
+    ok = False
+elif not (mask_lo & 0x04):
+    print(f'FAIL: last_power_ctrl_mask_lo=0x{mask_lo:02x} (BACKLIGHT bit missing)', file=sys.stderr)
+    ok = False
+if value_lo in bor:
+    print(f'FAIL: bor_diag stage value_lo=0x{value_lo:02x}', file=sys.stderr)
+    ok = False
+if ok:
+    print(f'last_power_ctrl mask_lo=0x{mask_lo:02x} value_lo=0x{value_lo:02x} (no BOR marker)')
+sys.exit(0 if ok else 1)
+PY
 }

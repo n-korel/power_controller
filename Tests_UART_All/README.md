@@ -37,25 +37,42 @@ chmod +x *.sh parse_get_status.py
 | Script | Block | Description |
 |--------|-------|-------------|
 | `02_reset_fault.sh` | — | RESET_FAULT + all domains OFF + `CALIBRATE_OFFSET` if currents ≫0 at state=0 |
+| `23_neg_backlight_no_display.sh` | K | BACKLIGHT without SCALER/LCD → `status=0x01` |
+| `24_neg_lcd_no_scaler.sh` | K | LCD without SCALER → `status=0x01` |
+| `25_neg_scaler_backlight_no_lcd.sh` | K | SCALER\|BACKLIGHT without LCD → atomic reject |
 | `03_display_scaler_lcd_on.sh` | 1 | `POWER_CTRL` SCALER+LCD ON, state `0x03`, rails in range |
-| `05_backlight_brightness.sh` | 1 | BACKLIGHT ON, `SET_BRIGHTNESS` 500 / 1000 / 0 |
-| `08_display_shutdown.sh` | 1 | LCD OFF with BL ON → full shutdown, display bits clear |
 | `04_telemetry_under_load.sh` | 2 | Non-zero load currents |
-| `09_fault_lcd_current.sh` | 3 | `I_LCD_MAX=50` mA → `FAULT_LCD`, restore |
+| `05_backlight_brightness.sh` | 1 | BACKLIGHT ON, `SET_BRIGHTNESS` 500 / 1000 / 0 |
+| `28_bl_bor_diag.sh` | 1 | After BL ON: `last_power_ctrl_mask_lo≠0`, no BOR marker `0xE1..0xE6` |
+| `26_set_brightness_no_bl.sh` | 1 | `SET_BRIGHTNESS` at `state=0x03` (BL off) — ACK OK, state unchanged |
+| `27_set_brightness_neg.sh` | 1 | Bad LEN / pwm>1000 rejected with BL on |
+| `06_reset_bridge_display.sh` | 4 | `RESET_BRIDGE` with SCALER+LCD (LA on PB8) |
+| `07_audio_sequencing.sh` | 5 | AUDIO ON/OFF — `[SKIP]` if `PERIPH_AUDIO_HW_ENABLED=0` |
+| `08_display_shutdown.sh` | 1 | LCD OFF with BL ON → full shutdown, display bits clear |
 | `11_backlight_only_off.sh` | 1 | `BL OFF` при активных `SCALER+LCD` → остаётся `state=0x03` |
 | `12_all_at_once_up.sh` | 1 | `POWER_CTRL` с маской `0x0007` поднимает `SCALER+LCD+BL` из `state=0` |
-| `13_fault_recovery_display.sh` | 3 | `FAULT_LCD` latch → safe state → `RESET_FAULT` → display `ON` |
 | `14_set_brightness_boundary.sh` | 1 | `SET_BRIGHTNESS` на граничных значениях `1` и `999` при `BL ON` |
 | `15_display_resequence.sh` | 1 | Повторные циклы `UP/DN/UP` дисплея без power-reset |
-| `06_reset_bridge_display.sh` | 4 | `RESET_BRIDGE` with SCALER+LCD (LA on PB8) |
-| `07_audio_sequencing.sh` | 5 | AUDIO ON/OFF (DMM: PC8 SDZ, PC6 MUTE) — для ревизии с `ENABLE_AUDIO_HW=0` ожидаемо не применяется |
+| `16_stress_get_status_load.sh` | K | 20× GET_STATUS при `state=0x07` |
+| `17_iwdg_stress_load.sh` | I | 20× GET_STATUS (100 ms) под нагрузкой |
+| `09_fault_lcd_current.sh` | 3 | `I_LCD_MAX=50` mA → `FAULT_LCD`, restore |
+| `13_fault_recovery_display.sh` | 3 | `FAULT_LCD` latch → safe state → `RESET_FAULT` → display `ON` |
+| `18_fault_v12_under_load.sh` | F | `FAULT_V12_RANGE` при включённом дисплее |
+| `19_fault_scaler_current.sh` | 3 | `I_SCALER_MAX` trap → `FAULT_SCALER` |
+| `20_fault_backlight_current.sh` | 3 | `I_BACKLIGHT_MAX` trap — `[SKIP]` if no BL current sensor |
+| `21_fault_audio_current.sh` | 3 | `I_AUDIO_*` trap — `[SKIP]` if `PERIPH_AUDIO_HW_ENABLED=0` |
+| `22_fault_reserved_display.sh` | F | Bit 15 = 0 under latched V12 fault |
+| `29_calibrate_offset_neg_display.sh` | — | `CALIBRATE_OFFSET` rejected at `state=0x03` |
+| `31_simple_domains_periph.sh` | K | TOUCH/ETH toggle — `[SKIP]` if `PERIPH_TOUCH_HW_ENABLED=0` |
 | `10_sus_s3_manual.sh` | 6 | SUS_S3# → PWRBTN# procedure (manual) |
+
+**Протокол (CRC, NACK, inter-byte gap, bare-board faults):** `make test-uart` — не дублируется здесь.
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
 
 If **NSM2012 (U4) is not populated** on the backlight path (`IP+`/`IP-` jumpered), firmware must use `ENABLE_BL_CURRENT_SENSOR=0` in `Config/config.h`. UART tests then expect `i_backlight=-32768` and omit that channel from load/zero current checks (`TELEMETRY_I_CHANNELS`, `LOAD_I_CHANNELS` in `config.sh`).
 
-If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verify), `run_all_peripheral.sh` marks **04–06, 08–09, 11–15** as **`[SKIP]`** instead of cascading **FAIL**. Tests **07** (audio) and **10** (SUS_S3 manual) still run.
+If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verify), `run_all_peripheral.sh` marks display-dependent scripts as **`[SKIP]`** instead of cascading **FAIL**. Tests **07** (audio), **23–25** (policy neg), and **10** (SUS_S3 manual) still run.
 
 ## Environment variables
 
@@ -65,7 +82,11 @@ If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verif
 | `SEQ_ON_WAIT_SEC` | `2.0` | Delay after SCALER+LCD ON |
 | `THRESH_I_LCD_TRAP_MA` | `50` | LCD overcurrent trap for block 3 |
 | `LOAD_I_MIN_MA` | `5` | Minimum plausible load current |
-| `PERIPH_AUDIO_HW_ENABLED` | `0` | `0` — AUDIO ON ожидаемо отклоняется (status=1); `1` — проверяется полный AUDIO ON/OFF |
+| `PERIPH_AUDIO_HW_ENABLED` | `0` | `0` — AUDIO ON ожидаемо отклоняется (status=1); `1` — полный AUDIO + `21_fault_audio_current.sh` |
+| `PERIPH_TOUCH_HW_ENABLED` | `0` | `1` — `31_simple_domains_periph.sh` (TOUCH/ETH) |
+| `PERIPH_BL_CURRENT_SENSOR_ENABLED` | `0` | `1` — `20_fault_backlight_current.sh` (NSM2012 on BL shunt) |
+| `THRESH_I_SCALER_TRAP_MA` | `50` | Scaler overcurrent trap (block 3) |
+| `THRESH_I_BL_TRAP_MA` | `50` | Backlight overcurrent trap |
 | `RUN_SUS_S3_HW_TEST` | `0` | `1` — count block 6 as PASS after printing steps |
 | `DISPLAY_SKIP_REASON` | (built-in EN string) | Message when display tests are skipped |
 
@@ -78,5 +99,6 @@ If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verif
 
 ## Make targets
 
-- `make test-uart` — bare board, [`Tests_UART/`](../Tests_UART/)
-- `make test-uart-all` — this directory
+- `make test-uart` — bare board protocol + rails/faults, [`Tests_UART/`](../Tests_UART/)
+- `make test-uart-all` — this directory (display bench)
+- Recommended full bench: `make test-uart && make test-uart-all`

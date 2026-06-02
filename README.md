@@ -56,10 +56,10 @@ flowchart LR
 
 1. MCU выходит в **safe state**, инициализирует периферию.
 2. Ждёт `PGOOD = HIGH` (до 5 с; иначе `FAULT_PGOOD_LOST`, остаётся в INIT).
-3. Сам включает дисплейный тракт: **SCALER + LCD** (power sequencing), **TOUCH**, питание **AUDIO** (усилитель в mute/shutdown).
-4. **Подсветка OFF** — яркость только по вашим командам.
+3. Сам включает дисплейный тракт: **SCALER + LCD + BACKLIGHT** (power sequencing, §6.1; см. `ENABLE_BACKLIGHT_AUTO_STARTUP` в `config.h`).
+4. Яркость по умолчанию — `BACKLIGHT_DEFAULT_PWM_ON`; точная настройка — `SET_BRIGHTNESS`. **TOUCH** и **AUDIO** на данной ревизии не включаются автоматически.
 
-Ожидаемая маска `state` после старта: `SCALER | LCD | TOUCH | AUDIO` (без `BACKLIGHT`).
+Ожидаемая маска `state` после старта: `SCALER | LCD | BACKLIGHT` (`0x07` при включённом auto-BL).
 
 ### Автозапуск Linux (не UART)
 
@@ -110,7 +110,7 @@ flowchart LR
 
 1. **PING** `0x01` → в ответе `status = 0xAA` (MCU alive).
 2. **GET_STATUS** `0x04` → `LEN = 27`, разобрать телеметрию.
-3. Проверить после старта: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=OFF`.
+3. Проверить после старта: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=ON` (или `0x03` без auto-BL, если `ENABLE_BACKLIGHT_AUTO_STARTUP=0`).
 
 ### Рекомендуемый цикл опроса
 
@@ -253,17 +253,16 @@ flowchart LR
 
 ### После подачи питания
 
-MCU сам поднимает SCALER/LCD/TOUCH/AUDIO; подсветка выключена.  
-Дальше — ваши команды.
+MCU сам поднимает SCALER/LCD/BACKLIGHT (§6.1); TOUCH/AUDIO на данной ревизии не включаются.  
+Дальше — ваши команды (яркость, выключение BL и т.д.).
 
-### Включить подсветку
+### Настроить яркость подсветки
 
-Предусловие: `SCALER=ON`, `LCD=ON` (после старта обычно уже так).
+После старта `BACKLIGHT` уже ON (PWM = `BACKLIGHT_DEFAULT_PWM_ON`, обычно 50).
 
-1. `POWER_CTRL`: `mask=bit2`, `value=bit2` (BACKLIGHT ON).
-2. `SET_BRIGHTNESS`: `pwm` 0…1000.
+1. `SET_BRIGHTNESS`: `pwm` 0…1000.
 
-MCU выполнит sequencing (задержки порядка 50–200 мс на шаг) — не слать повторный `BACKLIGHT=ON`, пока не получили ответ или таймаут.
+Если auto-BL отключён (`ENABLE_BACKLIGHT_AUTO_STARTUP=0`): сначала `POWER_CTRL` bit2 ON, затем `SET_BRIGHTNESS`.
 
 ### Выключить только подсветку
 

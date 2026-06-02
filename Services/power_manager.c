@@ -974,15 +974,16 @@ void power_force_off_domains(uint16_t domain_mask)
 #if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
 static void power_auto_startup(void)
 {
-    /* Rules §6.5 / README §13.6 target state after PGOOD=HIGH:
-     *   SCALER=ON, LCD=ON, BACKLIGHT=OFF, TOUCH=ON, AUDIO=ON (amp safe).
-     * DOM_AUDIO bit mirrors POWER_AUDIO=1; SDZ=0/MUTE=1 are kept from init,
-     * and amp_active stays 0 so POWER_CTRL AUDIO=ON from Q7 runs only the
-     * partial SDZ->MUTE tail of ASEQ (Rules §9). */
-    dseq_up_with_bl            = 0;
-    auto_startup_pending_aux   = 1;
-    dseq                       = DSEQ_UP_SCALER_ON;
-    auto_startup_done          = 1;
+    /* Rules §6.1 / §6.5: after PGOOD=HIGH run display UP (SCALER+LCD+optional BL).
+     * TOUCH/AUDIO are not auto-started on this revision (ENABLE_*_HW). */
+#if (ENABLE_BACKLIGHT_AUTO_STARTUP != 0U) && (ENABLE_BACKLIGHT_HW != 0U)
+    dseq_up_with_bl = 1;
+#else
+    dseq_up_with_bl = 0;
+#endif
+    auto_startup_pending_aux = 1;
+    dseq                     = DSEQ_UP_SCALER_ON;
+    auto_startup_done        = 1;
 }
 #endif
 

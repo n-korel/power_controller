@@ -63,7 +63,7 @@
 
 - Отправить: `02 04 00 54 03`
 - Ответ: 31 байт. Разобрать bytes 23 (offset 22 в DATA) = `state`, bytes 24-25 = `fault_flags`.
-- `state` должен быть `0x4B` = двоичное `01001011` = биты 0,1,3,6 = SCALER+LCD+AUDIO+TOUCH включены, BACKLIGHT выключен.
+- `state` должен быть `0x07` = SCALER+LCD+BACKLIGHT (display sequencing §6.1 при `ENABLE_BACKLIGHT_AUTO_STARTUP=1`); AUDIO/TOUCH выключены (`ENABLE_AUDIO_HW`/`ENABLE_TOUCH_HW` = 0). Без auto-BL — `0x03`.
 - `fault_flags` = `0x00 0x00` — нет аварий.
 
 **Если не так:**
@@ -192,7 +192,7 @@ E4 0C        v3v3 = 0x0CE4 = 3300 мВ = 3.3 В
 ...          токи (около нуля без нагрузки)
 00 80        temp0 = -32768 (NTC нет)
 00 80        temp1 = -32768 (NTC нет)
-4B           state = 0x4B (SCALER|LCD|AUDIO|TOUCH ON)
+07           state = 0x07 (SCALER|LCD|BACKLIGHT ON, AUDIO/TOUCH OFF)
 00 00        fault_flags = 0
 4F           inputs = 0x4F = 01001111 (PGOOD=1, IN_0..3=1)
 XX 03
@@ -961,7 +961,7 @@ parse_get_status_hex "$(cmd_get_status)"
 ### UART-тесты (`Tests_UART_All`)
 
 ```bash
-bash Tests_UART_All/03_display_scaler_lcd_on.sh   # база: state=0x03
+bash Tests_UART_All/03_display_scaler_lcd_on.sh   # база: state=0x03 или 0x07 после auto-start
 bash Tests_UART_All/05_backlight_brightness.sh    # ключевой BL-тест
 ```
 

@@ -177,24 +177,42 @@ static const isolation_case_t k_cases[] = {
         DOM_AUDIO,
         "FAULT_AUDIO -> SCALER",
     },
+#if (ENABLE_AUDIO_HW != 0U)
     {
         FAULT_SCALER, DOM_SCALER | DOM_LCD,
         DOM_AUDIO, DOM_AUDIO, DOM_AUDIO,
         DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
         "FAULT_SCALER -> AUDIO",
     },
+#else
+    {
+        FAULT_SCALER, DOM_SCALER | DOM_LCD,
+        DOM_ETH1, DOM_ETH1, DOM_ETH1,
+        DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO,
+        "FAULT_SCALER -> ETH1",
+    },
+#endif
     {
         FAULT_LCD, DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
         DOM_SCALER, DOM_SCALER, DOM_SCALER,
         DOM_AUDIO | DOM_BACKLIGHT,
         "FAULT_LCD -> SCALER",
     },
+#if (ENABLE_AUDIO_HW != 0U)
     {
         FAULT_BACKLIGHT, DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
         DOM_AUDIO, DOM_AUDIO, DOM_AUDIO,
         DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
         "FAULT_BACKLIGHT -> AUDIO",
     },
+#else
+    {
+        FAULT_BACKLIGHT, DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
+        DOM_ETH1, DOM_ETH1, DOM_ETH1,
+        DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO,
+        "FAULT_BACKLIGHT -> ETH1",
+    },
+#endif
     {
         FAULT_V5_RANGE, DOM_SCALER,
         DOM_SCALER, DOM_SCALER, DOM_SCALER,
@@ -213,12 +231,21 @@ static const isolation_case_t k_cases[] = {
         DOM_ETH1 | DOM_AUDIO,
         "FAULT_ETH1 -> SCALER",
     },
+#if (ENABLE_AUDIO_HW != 0U)
     {
         FAULT_TOUCH, DOM_TOUCH,
         DOM_AUDIO, DOM_AUDIO, DOM_AUDIO,
         DOM_TOUCH | DOM_SCALER,
         "FAULT_TOUCH -> AUDIO",
     },
+#else
+    {
+        FAULT_TOUCH, DOM_TOUCH,
+        DOM_ETH1, DOM_ETH1, DOM_ETH1,
+        DOM_TOUCH | DOM_SCALER | DOM_AUDIO,
+        "FAULT_TOUCH -> ETH1",
+    },
+#endif
 };
 
 void test_cross_domain_matrix_fault_reset_then_independent_power_ctrl(void)

@@ -16,6 +16,11 @@ static int16_t  mock_temp[2];
 static uint8_t  mock_power_state;
 static uint16_t mock_fault_flags;
 static uint8_t  mock_input_packed;
+static uint8_t  mock_dseq;
+static uint8_t  mock_pwr_ctrl_mask_lo;
+static uint8_t  mock_pwr_ctrl_value_lo;
+static uint32_t mock_reset_flags_raw;
+static uint32_t mock_boot_counter;
 static uint8_t  mock_power_ctrl_result;
 static uint16_t mock_power_ctrl_mask;
 static uint16_t mock_power_ctrl_value;
@@ -40,6 +45,11 @@ uint16_t adc_get_voltage_mv(uint8_t idx) { return (idx < 4) ? mock_voltage_mv[id
 int16_t  adc_get_current_ma(uint8_t idx) { return (idx < 5) ? mock_current_ma[idx] : 0; }
 int16_t  adc_get_temp(uint8_t idx)       { return (idx < 2) ? mock_temp[idx] : -32768; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
+uint8_t  power_get_dseq_raw(void)        { return mock_dseq; }
+uint8_t  power_get_last_power_ctrl_mask_lo(void)  { return mock_pwr_ctrl_mask_lo; }
+uint8_t  power_get_last_power_ctrl_value_lo(void) { return mock_pwr_ctrl_value_lo; }
+uint32_t power_get_reset_flags_raw(void) { return mock_reset_flags_raw; }
+uint32_t power_get_boot_counter(void)    { return mock_boot_counter; }
 uint16_t fault_get_flags(void)           { return mock_fault_flags; }
 uint8_t  input_get_packed(void)          { return mock_input_packed; }
 
@@ -457,7 +467,7 @@ void test_dispatch_unknown_cmd_nack(void)
     TEST_ASSERT_EQUAL_HEX8(0x01,      tx_buf[3]);
 }
 
-void test_dispatch_get_status_layout_26_bytes(void)
+void test_dispatch_get_status_layout_37_bytes(void)
 {
     mock_voltage_mv[0] = 24000;
     mock_voltage_mv[1] = 12000;
@@ -473,6 +483,11 @@ void test_dispatch_get_status_layout_26_bytes(void)
     mock_power_state  = 0x47;
     mock_fault_flags  = 0x1234;
     mock_input_packed = 0xA5;
+    mock_dseq               = 0x0B;
+    mock_pwr_ctrl_mask_lo   = 0x55;
+    mock_pwr_ctrl_value_lo  = 0xAA;
+    mock_reset_flags_raw    = 0x0E000000U;
+    mock_boot_counter       = 0x00000042U;
 
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_GET_STATUS, NULL, 0);
@@ -498,6 +513,13 @@ void test_dispatch_get_status_layout_26_bytes(void)
     TEST_ASSERT_EQUAL_HEX8(0x47, d[22]);
     TEST_ASSERT_EQUAL_HEX16(0x1234, (uint16_t)d[23] | ((uint16_t)d[24] << 8));
     TEST_ASSERT_EQUAL_HEX8(0xA5, d[25]);
+    TEST_ASSERT_EQUAL_HEX8(0x0B, d[26]);
+    TEST_ASSERT_EQUAL_HEX8(0x55, d[27]);
+    TEST_ASSERT_EQUAL_HEX8(0xAA, d[28]);
+    TEST_ASSERT_EQUAL_HEX32(0x0E000000U,
+        (uint32_t)d[29] | ((uint32_t)d[30] << 8) | ((uint32_t)d[31] << 16) | ((uint32_t)d[32] << 24));
+    TEST_ASSERT_EQUAL_HEX32(0x00000042U,
+        (uint32_t)d[33] | ((uint32_t)d[34] << 8) | ((uint32_t)d[35] << 16) | ((uint32_t)d[36] << 24));
 
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[3 + GET_STATUS_DATA_LEN + 1]);
 }
@@ -1046,7 +1068,7 @@ int main(void)
     RUN_TEST(test_dispatch_ping_responds_0xAA);
     RUN_TEST(test_hal_uart_dispatch_ping_calls_single_transmit_with_len6);
     RUN_TEST(test_dispatch_unknown_cmd_nack);
-    RUN_TEST(test_dispatch_get_status_layout_26_bytes);
+    RUN_TEST(test_dispatch_get_status_layout_37_bytes);
     RUN_TEST(test_dispatch_power_ctrl_bad_len_nack);
     RUN_TEST(test_dispatch_power_ctrl_rejects_unknown_bits_in_mask_or_value);
     RUN_TEST(test_dispatch_set_brightness_over_1000_rejected);

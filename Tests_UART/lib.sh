@@ -644,9 +644,9 @@ if len(raw) != 42:
     sys.exit(1)
 fault = raw[26] | (raw[27] << 8)
 if exp.startswith('has:'):
-    mask = int(exp[4:], 16)
+    mask = int(exp[4:], 0)
     sys.exit(0 if (fault & mask) == mask else 1)
-want = int(exp, 16)
+want = int(exp, 0)
 sys.exit(0 if fault == want else 1)
 PY
 }

@@ -31,6 +31,15 @@ void setUp(void)
 
 void tearDown(void) {}
 
+#if (ENABLE_AUDIO_HW == 0U)
+void test_audio_edge_cases_skipped_when_hw_disabled(void)
+{
+    uint8_t r = power_ctrl_request(DOM_AUDIO, DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
+}
+#else
+
 void test_audio_off_interrupts_in_flight_aseq_on(void)
 {
     /* Start full ON sequence and advance into the wait-for-SDZ state. */
@@ -96,12 +105,18 @@ void test_audio_touch_combined_touch_applied_while_aseq_busy(void)
     TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
 }
 
+#endif
+
 int main(void)
 {
     UNITY_BEGIN();
+#if (ENABLE_AUDIO_HW == 0U)
+    RUN_TEST(test_audio_edge_cases_skipped_when_hw_disabled);
+#else
     RUN_TEST(test_audio_off_interrupts_in_flight_aseq_on);
     RUN_TEST(test_audio_on_while_amp_active_is_noop);
     RUN_TEST(test_audio_on_rejected_while_aseq_busy);
     RUN_TEST(test_audio_touch_combined_touch_applied_while_aseq_busy);
+#endif
     return UNITY_END();
 }

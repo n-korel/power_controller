@@ -3,7 +3,7 @@
  *
  * Covers Rules_POWER.md:
  *   - §1.1  no blocking waits outside main loop
- *   - §6.5  PGOOD=HIGH -> auto-bring up SCALER+LCD (no BL)
+ *   - §6.1  PGOOD=HIGH -> auto-bring up display (SCALER+LCD+optional BL)
  *   - §6.5  PGOOD absent for 5 s -> latch FAULT_PGOOD_LOST, stay safe
  *   - §12   safe state preserved on timeout, HAL_IWDG_Refresh stays in main loop
  */
@@ -14,6 +14,17 @@
 #include "tim.h"
 
 #include "power_manager.c"
+
+#if (ENABLE_BACKLIGHT_AUTO_STARTUP != 0U) && (ENABLE_BACKLIGHT_HW != 0U)
+#define AUTOSTART_DISPLAY_STATE  (uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT)
+#define AUTOSTART_DSEQ_UP_WITH_BL  1U
+#define AUTOSTART_TICK_MS  (SEQ_DELAY_SCALER_ON + SEQ_DELAY_RST_RELEASE + SEQ_DELAY_LCD_ON + \
+                            SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50U)
+#else
+#define AUTOSTART_DISPLAY_STATE  (uint8_t)(DOM_SCALER | DOM_LCD)
+#define AUTOSTART_DSEQ_UP_WITH_BL  0U
+#define AUTOSTART_TICK_MS  400U
+#endif
 
 static void tick_ms(uint32_t ms)
 {
@@ -57,8 +68,8 @@ void test_rejected_power_ctrl_preserves_pending_aux(void)
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
 
-    tick_ms(400);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    tick_ms(AUTOSTART_TICK_MS);
+    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
 }
 #endif
 
@@ -78,8 +89,8 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(DOM_TOUCH, 0));
     TEST_ASSERT_EQUAL_UINT8(0, auto_startup_pending_aux);
 
-    tick_ms(400);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    tick_ms(AUTOSTART_TICK_MS);
+    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
 
     /* After full DN via host, SCALER+LCD bring-up must not resurrect TOUCH/AUDIO. */
@@ -89,6 +100,7 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(0x0003, 0x0003));
     tick_ms(400);
 
+    /* Host POWER_CTRL without BACKLIGHT must not pull BL in. */
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
 }
@@ -181,8 +193,7 @@ void test_pgood_high_triggers_auto_startup_and_returns_idle(void)
     tick_ms(400);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    /* Auto-startup per Rules §6.5: SCALER UP sequence without BL. */
-    TEST_ASSERT_EQUAL_UINT8(0, dseq_up_with_bl);
+    TEST_ASSERT_EQUAL_UINT8(AUTOSTART_DSEQ_UP_WITH_BL, dseq_up_with_bl);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 
@@ -211,20 +222,23 @@ void test_pgood_high_does_not_override_nonzero_runtime_state(void)
 }
 
 #if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
-void test_pgood_high_full_up_completes_without_backlight(void)
+void test_pgood_high_full_up_completes_display_autostart(void)
 {
     mock_pgood = 1;
     mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
     mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
 
     power_startup_begin();
-    tick_ms(300);
+    tick_ms(AUTOSTART_TICK_MS);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    /* Per Rules §6.5: SCALER=ON, LCD=ON, BACKLIGHT=OFF. */
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
+#if (ENABLE_BACKLIGHT_AUTO_STARTUP != 0U) && (ENABLE_BACKLIGHT_HW != 0U)
+    TEST_ASSERT_TRUE(pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin) > 0);
+#else
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin));
+#endif
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
 #endif
@@ -258,10 +272,10 @@ void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
     mock_pgood = 1;
     mock_raw_avg[ADC_IDX_SCALER_POWER] = 1500;
     mock_raw_avg[ADC_IDX_LCD_POWER]    = 1500;
-    tick_ms(400);
+    tick_ms(AUTOSTART_TICK_MS);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
 #endif
@@ -344,7 +358,7 @@ int main(void)
 #endif
     RUN_TEST(test_pgood_high_does_not_override_nonzero_runtime_state);
 #if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
-    RUN_TEST(test_pgood_high_full_up_completes_without_backlight);
+    RUN_TEST(test_pgood_high_full_up_completes_display_autostart);
 #endif
     RUN_TEST(test_pgood_low_below_timeout_stays_waiting);
 #if (ENABLE_PGOOD_AUTO_STARTUP != 0U)

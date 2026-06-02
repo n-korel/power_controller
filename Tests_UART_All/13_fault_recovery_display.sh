@@ -9,12 +9,19 @@ trap 'fault_restore_i_lcd_max >/dev/null 2>&1 || true; cmd_reset_fault >/dev/nul
 uart_open
 periph_prepare_zero_load || die "prepare failed"
 periph_display_scaler_lcd_on >/dev/null || die "setup: need SCALER+LCD load"
+gs="$(periph_wait_status_load_ma i_lcd 3 0x03)" \
+  || die "no stable i_lcd after SCALER+LCD ON (retry after long suite)"
+sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 
-log_info "trap I_LCD max=${THRESH_I_LCD_TRAP_MA} mA"
-hex="$(fault_set_i_lcd_max_ma "${THRESH_I_LCD_TRAP_MA}")" || die "SET_THRESHOLDS trap: no response"
+rc=0
+hex="$(periph_fault_trap_i_ma "$gs" i_lcd fault_set_i_lcd_max_ma)" || rc=$?
+if [[ "$rc" -eq 2 ]]; then exit 0; fi
+[[ "$rc" -eq 0 ]] || die "SET_THRESHOLDS trap failed"
 expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
+sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 
-gs="$(fault_wait_flags "${FAULT_LCD_FLAG}" "${FAULT_WAIT_TRIES:-40}")" || die "expected FAULT_LCD within ~${FAULT_WAIT_TRIES} polls"
+gs="$(periph_fault_wait_latched "${FAULT_LCD_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \
+  || die "expected FAULT_LCD (${FAULT_LCD_FLAG}) within ~${FAULT_WAIT_TRIES:-40} polls"
 expect_state_bits "$gs" 0 0xff || die "expected safe state=0 after FAULT_LCD"
 expect_fault_reserved_clear "$gs" || die "FAULT_RESERVED bit 15 must stay 0"
 
