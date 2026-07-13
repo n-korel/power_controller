@@ -29,11 +29,6 @@ uint16_t adc_get_voltage_mv(uint8_t idx) { return (idx < 4) ? mock_voltage_mv[id
 int16_t  adc_get_current_ma(uint8_t idx) { return (idx < 5) ? mock_current_ma[idx] : 0; }
 int16_t  adc_get_temp(uint8_t idx)       { return (idx < 2) ? mock_temp[idx] : -32768; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
-uint8_t  power_get_dseq_raw(void)        { return 0; }
-uint8_t  power_get_last_power_ctrl_mask_lo(void)  { return 0; }
-uint8_t  power_get_last_power_ctrl_value_lo(void) { return 0; }
-uint32_t power_get_reset_flags_raw(void) { return 0; }
-uint32_t power_get_boot_counter(void)    { return 0; }
 uint16_t fault_get_flags(void)           { return mock_fault_flags; }
 uint8_t  input_get_packed(void)          { return mock_input_packed; }
 uint8_t  power_ctrl_request(uint16_t m, uint16_t v) { (void)m; (void)v; return mock_power_ctrl_result; }

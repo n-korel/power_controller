@@ -163,7 +163,7 @@ static void gpio_domain_set(uint8_t dom, uint8_t on)
  * includes the final display state when display sequencing is in flight. */
 static uint8_t power_effective_state_for_request(void)
 {
-    uint8_t state = power_state;
+    uint8_t state = (uint8_t)(power_state | DOM_ETH1 | DOM_ETH2);
 
     switch (dseq) {
     case DSEQ_DN_PWM_ZERO:
@@ -215,7 +215,11 @@ static uint8_t power_effective_state_for_request(void)
 /* ===== Init ===== */
 void power_manager_init(void)
 {
-    power_state    = 0;
+    /* ETH1/ETH2 are always-on domains: no sequencing, no board-revision gate,
+     * enabled unconditionally on every boot (before host sends any POWER_CTRL). */
+    gpio_domain_set(DOM_ETH1, 1);
+    gpio_domain_set(DOM_ETH2, 1);
+    power_state    = (uint8_t)(DOM_ETH1 | DOM_ETH2);
     brightness_pwm = 0;
     last_power_ctrl_mask = 0;
     last_power_ctrl_value = 0;
@@ -239,7 +243,7 @@ void power_manager_init(void)
     boot_counter++;
 #if (ENABLE_BOR_DIAG_MARKER != 0U)
     if (bor_diag_valid()) {
-        /* Latched reset context marker, emitted via GET_STATUS.last_power_ctrl_value_lo. */
+        /* Latched reset context marker (internal UART/BOR debug breadcrumb). */
         last_power_ctrl_value = bor_diag_marker;
     }
     bor_diag_clear();
@@ -277,8 +281,6 @@ void power_safe_state(void)
     gpio_domain_set(DOM_LCD, 0);
     gpio_domain_set(DOM_BACKLIGHT, 0);
     gpio_domain_set(DOM_AUDIO, 0);
-    gpio_domain_set(DOM_ETH1, 0);
-    gpio_domain_set(DOM_ETH2, 0);
     gpio_domain_set(DOM_TOUCH, 0);
 
     /* Amplifier safe */
@@ -301,7 +303,7 @@ void power_safe_state(void)
         __HAL_TIM_SET_COMPARE(&htim17, TIM_CHANNEL_1, 0);
     }
 
-    power_state    = 0;
+    power_state    = (uint8_t)(DOM_ETH1 | DOM_ETH2);
     brightness_pwm = 0;
     bl_pwm_applied = 0;
     bl_gpio_on_applied = 0;
@@ -736,32 +738,7 @@ static void sus_s3_process(void)
 /* ===== Public API ===== */
 uint8_t power_get_state(void)
 {
-    return power_state;
-}
-
-uint8_t power_get_dseq_raw(void)
-{
-    return (uint8_t)dseq;
-}
-
-uint8_t power_get_last_power_ctrl_mask_lo(void)
-{
-    return (uint8_t)(last_power_ctrl_mask & 0x00FFU);
-}
-
-uint8_t power_get_last_power_ctrl_value_lo(void)
-{
-    return (uint8_t)(last_power_ctrl_value & 0x00FFU);
-}
-
-uint32_t power_get_reset_flags_raw(void)
-{
-    return reset_flags_raw;
-}
-
-uint32_t power_get_boot_counter(void)
-{
-    return boot_counter;
+    return (uint8_t)(power_state | DOM_ETH1 | DOM_ETH2);
 }
 
 uint8_t power_is_idle(void)
@@ -793,6 +770,7 @@ uint8_t power_reset_bridge(void)
 
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
 {
+    power_state |= (uint8_t)(DOM_ETH1 | DOM_ETH2);
     last_power_ctrl_mask = mask;
     last_power_ctrl_value = value;
 
@@ -897,9 +875,10 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         }
     }
 
-    /* Simple domains (ETH1, ETH2, TOUCH) — direct control, independent of ASEQ. */
-    static const uint8_t simple_doms[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
-    for (uint8_t i = 0; i < 3; i++) {
+    /* TOUCH is the only directly switchable simple domain.
+     * ETH1/ETH2 are always-on and host requests for them are ignored. */
+    static const uint8_t simple_doms[] = { DOM_TOUCH };
+    for (uint8_t i = 0; i < 1; i++) {
         uint8_t dom = simple_doms[i];
         if (!(mask & dom)) continue;
         uint8_t on = (value & dom) ? 1 : 0;
@@ -961,9 +940,9 @@ void power_force_off_domains(uint16_t domain_mask)
         power_emergency_display_off();
     }
 
-    /* Simple domains */
-    uint8_t simple_domains[] = { DOM_ETH1, DOM_ETH2, DOM_TOUCH };
-    for (uint8_t i = 0; i < 3; i++) {
+    /* TOUCH remains force-off capable; ETH1/ETH2 are always-on and ignored. */
+    uint8_t simple_domains[] = { DOM_TOUCH };
+    for (uint8_t i = 0; i < 1; i++) {
         if (domain_mask & simple_domains[i]) {
             gpio_domain_set(simple_domains[i], 0);
             power_state &= ~simple_domains[i];
@@ -995,8 +974,11 @@ static void sseq_process(void)
     if (input_get_pgood()) {
         sseq = STARTUP_IDLE;
 #if (ENABLE_PGOOD_AUTO_STARTUP != 0U)
+        /* ETH1/ETH2 are on by default from boot and must not block display
+         * auto-startup: only the display domains need to be idle here. */
         if (!auto_startup_done &&
-            power_state == 0U && dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
+            !(power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT)) &&
+            dseq == DSEQ_IDLE && aseq == ASEQ_IDLE) {
             power_auto_startup();
         }
 #endif

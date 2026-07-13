@@ -91,7 +91,7 @@ void flash_cal_load(void)
 /* ===== Calibrate: snapshot current channel raw values and write to Flash ===== */
 uint8_t flash_cal_calibrate(void)
 {
-    if (power_get_state() != 0)
+    if (power_get_state() != (uint8_t)(DOM_ETH1 | DOM_ETH2))
         return 1;
     if (!power_is_idle())
         return 1;

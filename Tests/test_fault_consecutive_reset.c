@@ -36,8 +36,8 @@ void power_safe_state(void)
 {
     mock_safe_state_call_count++;
     power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
-                            DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
-    mock_power_state = 0;
+                            DOM_TOUCH);
+    mock_power_state = DOM_ETH1 | DOM_ETH2;
 }
 
 volatile uint32_t systick_ms;

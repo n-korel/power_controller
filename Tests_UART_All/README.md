@@ -7,7 +7,7 @@ Scripts for **POWER_Controller** on a bench with:
 - **USB-UART TTL 3.3 V** on **UART0** (`PA9`/`PA10`, common GND);
 - **no Q7 (Linux)** — OTA and full Linux recovery flows are out of scope.
 
-Protocol helpers inherit from [`Tests_UART/`](../Tests_UART/). **Terminal log output is English.**
+Protocol helpers: [`scripts/uart/`](../scripts/uart/). **Terminal log output is English.**
 
 ## Requirements
 
@@ -28,7 +28,7 @@ Or directly:
 
 ```bash
 cd Tests_UART_All
-chmod +x *.sh parse_get_status.py
+chmod +x *.sh
 ./run_all_peripheral.sh
 ```
 
@@ -43,7 +43,6 @@ chmod +x *.sh parse_get_status.py
 | `03_display_scaler_lcd_on.sh` | 1 | `POWER_CTRL` SCALER+LCD ON, state `0x03`, rails in range |
 | `04_telemetry_under_load.sh` | 2 | Non-zero load currents |
 | `05_backlight_brightness.sh` | 1 | BACKLIGHT ON, `SET_BRIGHTNESS` 500 / 1000 / 0 |
-| `28_bl_bor_diag.sh` | 1 | After BL ON: `last_power_ctrl_mask_lo≠0`, no BOR marker `0xE1..0xE6` |
 | `26_set_brightness_no_bl.sh` | 1 | `SET_BRIGHTNESS` at `state=0x03` (BL off) — ACK OK, state unchanged |
 | `27_set_brightness_neg.sh` | 1 | Bad LEN / pwm>1000 rejected with BL on |
 | `06_reset_bridge_display.sh` | 4 | `RESET_BRIDGE` with SCALER+LCD (LA on PB8) |
@@ -65,8 +64,6 @@ chmod +x *.sh parse_get_status.py
 | `29_calibrate_offset_neg_display.sh` | — | `CALIBRATE_OFFSET` rejected at `state=0x03` |
 | `31_simple_domains_periph.sh` | K | TOUCH/ETH toggle — `[SKIP]` if `PERIPH_TOUCH_HW_ENABLED=0` |
 | `10_sus_s3_manual.sh` | 6 | SUS_S3# → PWRBTN# procedure (manual) |
-
-**Протокол (CRC, NACK, inter-byte gap, bare-board faults):** `make test-uart` — не дублируется здесь.
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
 
@@ -99,6 +96,4 @@ If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verif
 
 ## Make targets
 
-- `make test-uart` — bare board protocol + rails/faults, [`Tests_UART/`](../Tests_UART/)
 - `make test-uart-all` — this directory (display bench)
-- Recommended full bench: `make test-uart && make test-uart-all`

@@ -52,7 +52,7 @@ void fault_set_flag(uint16_t flag)
     }
     if (flag & (FAULT_PGOOD_LOST | FAULT_V24_RANGE | FAULT_V12_RANGE |
                 FAULT_V5_RANGE | FAULT_V3V3_RANGE | FAULT_INTERNAL)) {
-        power_force_off_domains(DOM_AUDIO | DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
+        power_force_off_domains(DOM_AUDIO | DOM_TOUCH);
     }
 }
 

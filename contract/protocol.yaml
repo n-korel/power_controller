@@ -16,39 +16,81 @@ uart0:
     covered_bytes: "[CMD][LEN][DATA...]"
 
 commands:
-  - {name: PING,             code: 0x01, req_len: 0, resp_len: 1,  resp_notes: "status=0xAA"}
-  - {name: POWER_CTRL,       code: 0x02, req_len: 4, resp_len: 1,  req_fields: [{name: mask, type: uint16_le, offset: 0}, {name: value, type: uint16_le, offset: 2}]}
-  - {name: SET_BRIGHTNESS,   code: 0x03, req_len: 2, resp_len: 1,  req_fields: [{name: pwm, type: uint16_le, offset: 0}]}
-  - {name: GET_STATUS,       code: 0x04, req_len: 0, resp_len: 37}
-  - {name: RESET_FAULT,      code: 0x05, req_len: 0, resp_len: 1}
-  - {name: RESET_BRIDGE,     code: 0x06, req_len: 0, resp_len: 1}
-  - {name: SET_THRESHOLDS,   code: 0x07, req_len: ">=2", resp_len: 1, req_fields: [{name: mask, type: uint16_le, offset: 0}]}
-  - {name: BOOTLOADER_ENTER, code: 0x08, req_len: 0, resp_len: 1}
-  - {name: CALIBRATE_OFFSET, code: 0x09, req_len: 0, resp_len: 1, resp_notes: "status=0x00 OK; status=0x01 error (domains must be OFF: GET_STATUS.state==0; run RESET_FAULT first if needed)"}
-  - {name: NACK,             code: 0xFF, req_len: 1, resp_len: 0,  req_fields: [{name: error_code, type: uint8, offset: 0}]}
+  - {
+      name: PING,
+      code: 0x01,
+      req_len: 0,
+      resp_len: 1,
+      resp_notes: "status=0xAA",
+    }
+  - {
+      name: POWER_CTRL,
+      code: 0x02,
+      req_len: 4,
+      resp_len: 1,
+      req_fields:
+        [
+          { name: mask, type: uint16_le, offset: 0 },
+          { name: value, type: uint16_le, offset: 2 },
+        ],
+    }
+  - {
+      name: SET_BRIGHTNESS,
+      code: 0x03,
+      req_len: 2,
+      resp_len: 1,
+      req_fields: [{ name: pwm, type: uint16_le, offset: 0 }],
+    }
+  - { name: GET_STATUS, code: 0x04, req_len: 0, resp_len: 22 }
+  - { name: RESET_FAULT, code: 0x05, req_len: 0, resp_len: 1 }
+  - { name: RESET_BRIDGE, code: 0x06, req_len: 0, resp_len: 1 }
+  - {
+      name: SET_THRESHOLDS,
+      code: 0x07,
+      req_len: ">=2",
+      resp_len: 1,
+      req_fields: [{ name: mask, type: uint16_le, offset: 0 }],
+    }
+  - { name: BOOTLOADER_ENTER, code: 0x08, req_len: 0, resp_len: 1 }
+  - {
+      name: CALIBRATE_OFFSET,
+      code: 0x09,
+      req_len: 0,
+      resp_len: 1,
+      resp_notes: "status=0x00 OK. status=0x01 when state is not 0x30 ETH-only",
+    }
+  - {
+      name: NACK,
+      code: 0xFF,
+      req_len: 1,
+      resp_len: 0,
+      req_fields: [{ name: error_code, type: uint8, offset: 0 }],
+    }
+
+nack_error_codes:
+  - { code: 0x01, name: unknown_command }
+  - { code: 0x02, name: queue_overflow }
+  - { code: 0x03, name: crc_error }
+  - { code: 0x04, name: framing_error }
+  - { code: 0x05, name: frame_timeout }
+  - { code: 0x06, name: rx_overflow }
+  - { code: 0x07, name: garbage_byte }
 
 get_status:
-  data_len: 37
+  data_len: 22
   layout:
-    - {field: v24_mv,           type: uint16_le, offset: 0}
-    - {field: v12_mv,           type: uint16_le, offset: 2}
-    - {field: v5_mv,            type: uint16_le, offset: 4}
-    - {field: v3v3_mv,          type: uint16_le, offset: 6}
-    - {field: i_lcd_ma,         type: int16_le,  offset: 8}
-    - {field: i_bl_ma,          type: int16_le,  offset: 10}
-    - {field: i_scaler_ma,      type: int16_le,  offset: 12}
-    - {field: i_audio_l_ma,     type: int16_le,  offset: 14}
-    - {field: i_audio_r_ma,     type: int16_le,  offset: 16}
-    - {field: temp0,            type: int16_le,  offset: 18}
-    - {field: temp1,            type: int16_le,  offset: 20}
-    - {field: state,            type: uint8,     offset: 22}
-    - {field: fault_flags,      type: uint16_le, offset: 23}
-    - {field: inputs,           type: uint8,     offset: 25}
-    - {field: dseq,             type: uint8,     offset: 26}
-    - {field: last_power_ctrl_mask_lo,  type: uint8,     offset: 27}
-    - {field: last_power_ctrl_value_lo, type: uint8,     offset: 28}
-    - {field: reset_flags_raw,  type: uint32_le, offset: 29}
-    - {field: boot_counter,     type: uint32_le, offset: 33}
+    - { field: v24_mv, type: uint16_le, offset: 0 }
+    - { field: v12_mv, type: uint16_le, offset: 2 }
+    - { field: v5_mv, type: uint16_le, offset: 4 }
+    - { field: v3v3_mv, type: uint16_le, offset: 6 }
+    - { field: i_lcd_ma, type: int16_le, offset: 8 }
+    - { field: i_bl_ma, type: int16_le, offset: 10 }
+    - { field: i_scaler_ma, type: int16_le, offset: 12 }
+    - { field: i_audio_l_ma, type: int16_le, offset: 14 }
+    - { field: i_audio_r_ma, type: int16_le, offset: 16 }
+    - { field: state, type: uint8, offset: 18 }
+    - { field: fault_flags, type: uint16_le, offset: 19 }
+    - { field: inputs, type: uint8, offset: 21 }
 
 domain_bits:
   SCALER: 0
@@ -58,3 +100,7 @@ domain_bits:
   ETH1: 4
   ETH2: 5
   TOUCH: 6
+
+domain_semantics:
+  ETH1: always_on
+  ETH2: always_on

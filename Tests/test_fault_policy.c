@@ -36,19 +36,19 @@ void power_force_off_domains(uint16_t domain_mask)
 void power_emergency_display_off(void) {}
 void power_safe_state(void)
 {
-    /* Emulate Rules_POWER.md invariant 42 in tests: safe state first. */
+    /* Emulate production safe state: ETH stays on, other domains go off first. */
     mock_safe_state_call_count++;
     power_force_off_domains(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
-                            DOM_ETH1 | DOM_ETH2 | DOM_TOUCH);
-    mock_power_state = 0;
+                            DOM_TOUCH);
+    mock_power_state = DOM_ETH1 | DOM_ETH2;
 }
 
 volatile uint32_t systick_ms;
 
 #include "fault_manager.c"
 
-#define ALL_DOMAINS  (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO | \
-                      DOM_ETH1 | DOM_ETH2 | DOM_TOUCH)
+#define FAULT_SAFE_STATE_DOMAINS  (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO | \
+                                   DOM_TOUCH)
 
 static void set_v_nominal(void)
 {
@@ -119,7 +119,7 @@ void test_v5_voltage_fault_after_5_consecutive(void)
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V5_RANGE);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, mock_power_state);
 }
 
 void test_v3v3_voltage_fault_after_5_consecutive(void)
@@ -136,7 +136,7 @@ void test_v3v3_voltage_fault_after_5_consecutive(void)
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_V3V3_RANGE);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, mock_power_state);
 }
 
 #if (ENABLE_V24_FAULT_CHECK != 0U)
@@ -186,7 +186,7 @@ void test_audio_current_fault_after_5_consecutive(void)
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_AUDIO);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, mock_power_state);
 }
 
 void test_faultz_active_low_confirms_after_5(void)
@@ -292,9 +292,9 @@ void test_pgood_loss_not_latched_when_power_off(void)
 
 void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(void)
 {
-    /* Invariant 42: first confirmed fault drives full safe state immediately.
-       Therefore in one processing cycle we only require that a fault is latched,
-       not that multiple reasons are aggregated after rails are forced off. */
+    /* Invariant 42: first confirmed fault drives safe state immediately.
+       Because ETH stays powered in safe state, later checks in the same cycle may
+       still observe a non-zero power mask and latch additional reasons such as PGOOD. */
     mock_power_state   = DOM_SCALER;
 #if (ENABLE_V24_FAULT_CHECK != 0U)
     mock_voltage_mv[0] = 30000; /* V24 out-of-range */
@@ -312,7 +312,7 @@ void test_multiple_fault_reasons_or_aggregate_in_same_cycle_after_confirmation(v
 #else
     TEST_ASSERT_TRUE(flags & FAULT_V5_RANGE);
 #endif
-    TEST_ASSERT_FALSE(flags & FAULT_PGOOD_LOST);
+    TEST_ASSERT_NOT_EQUAL_HEX16(0, flags);
 }
 
 void test_reset_fault_clears_flags_but_never_auto_enables_domains_even_if_measurements_normal(void)
@@ -360,70 +360,70 @@ void test_fault_scaler_enters_safe_state(void)
 {
     fault_set_flag(FAULT_SCALER);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_lcd_enters_safe_state(void)
 {
     fault_set_flag(FAULT_LCD);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_backlight_enters_safe_state(void)
 {
     fault_set_flag(FAULT_BACKLIGHT);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_audio_enters_safe_state(void)
 {
     fault_set_flag(FAULT_AUDIO);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_amp_faultz_enters_safe_state(void)
 {
     fault_set_flag(FAULT_AMP_FAULTZ);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_pgood_enters_safe_state(void)
 {
     fault_set_flag(FAULT_PGOOD_LOST);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_v24_range_enters_safe_state(void)
 {
     fault_set_flag(FAULT_V24_RANGE);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_v12_range_enters_safe_state(void)
 {
     fault_set_flag(FAULT_V12_RANGE);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_seq_abort_enters_safe_state(void)
 {
     fault_set_flag(FAULT_SEQ_ABORT);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_internal_enters_safe_state(void)
 {
     fault_set_flag(FAULT_INTERNAL);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 /* ===== Threshold update ===== */
@@ -508,7 +508,7 @@ void test_fault_touch_latched_with_domain_shutdown(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_TOUCH);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 void test_fault_eth1_eth2_latched_with_domain_shutdown(void)
@@ -516,7 +516,7 @@ void test_fault_eth1_eth2_latched_with_domain_shutdown(void)
     fault_set_flag(FAULT_ETH1);
     TEST_ASSERT_EQUAL_UINT8(1, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(1, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 
     fault_set_flag(FAULT_ETH2);
 
@@ -524,7 +524,7 @@ void test_fault_eth1_eth2_latched_with_domain_shutdown(void)
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_ETH2);
     TEST_ASSERT_EQUAL_UINT8(2, mock_safe_state_call_count);
     TEST_ASSERT_EQUAL_UINT8(2, mock_force_off_call_count);
-    TEST_ASSERT_EQUAL_HEX16(ALL_DOMAINS, mock_force_off_called_with);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_SAFE_STATE_DOMAINS, mock_force_off_called_with);
 }
 
 /* ===== Current threshold boundary (strict `>` check) ===== */
@@ -590,7 +590,7 @@ void test_v5_fault_same_cycle_no_ghost_lcd_bl_current_fault(void)
     uint16_t flags = fault_get_flags();
     TEST_ASSERT_TRUE(flags & FAULT_V5_RANGE);
     TEST_ASSERT_EQUAL_HEX16(0, flags & (FAULT_LCD | FAULT_BACKLIGHT));
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, mock_power_state);
 }
 
 /* ===== Runner ===== */

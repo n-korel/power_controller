@@ -19,7 +19,7 @@ fi
 python3 - "$gs" <<'PY' || die "expected state=0x03 (BL bit clear)"
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-state = raw[25] if len(raw) == 42 else 255
+state = raw[21] if len(raw) == 27 else 255
 sys.exit(0 if state == 0x03 else 1)
 PY
 
@@ -30,7 +30,7 @@ gs="$(cmd_get_status)" || die "no GET_STATUS"
 python3 - "$gs" <<'PY' || die "state must stay 0x03 (no BL bit)"
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-state = raw[25] if len(raw) == 42 else 255
+state = raw[21] if len(raw) == 27 else 255
 sys.exit(0 if state == 0x03 else 1)
 PY
 log_pass "SET_BRIGHTNESS with BL off: ACK OK, state=0x03 unchanged"

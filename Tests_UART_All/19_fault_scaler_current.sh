@@ -23,7 +23,7 @@ sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 gs="$(periph_fault_wait_latched "${FAULT_SCALER_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \
   || die "expected FAULT_SCALER (${FAULT_SCALER_FLAG})"
 parse_get_status_hex "$gs"
-expect_state_bits "$gs" 0 0xff || die "expected safe state=0"
+expect_state_bits "$gs" 0x30 0x4f || die "expected safe state=0x30"
 expect_fault_reserved_clear "$gs" || die "FAULT_RESERVED bit 15 must stay 0"
 
 hex="$(fault_restore_i_scaler_max)" || die "SET_THRESHOLDS restore: no response"

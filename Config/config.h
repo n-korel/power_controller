@@ -81,7 +81,7 @@ typedef enum {
 /* This revision does not provide a stable BACKLIGHT_POWER_M feedback.
  * Keep the BL sequence deterministic by skipping ADC rail verification. */
 #define ENABLE_BL_POWER_VERIFY    0U
-/* Diagnostic marker in GET_STATUS.last_power_ctrl_value_lo (0xE1..0xE6)
+/* Internal BOR/reset breadcrumb in last_power_ctrl_value (0xE1..0xE6),
  * latched from .noinit across reset: BL/SCALER/LCD pre+on stages. */
 #define ENABLE_BOR_DIAG_MARKER    1U
 
@@ -149,7 +149,15 @@ typedef enum {
 #define CMD_CALIBRATE_OFFSET 0x09U
 #define CMD_NACK             0xFFU
 
-#define GET_STATUS_DATA_LEN  37U
+#define NACK_ERR_UNKNOWN_CMD     0x01U
+#define NACK_ERR_QUEUE_OVERFLOW  0x02U
+#define NACK_ERR_CRC             0x03U
+#define NACK_ERR_FRAMING         0x04U
+#define NACK_ERR_TIMEOUT         0x05U
+#define NACK_ERR_RX_OVERFLOW     0x06U
+#define NACK_ERR_GARBAGE         0x07U
+
+#define GET_STATUS_DATA_LEN  22U
 #define PING_RESPONSE        0xAAU
 
 /* ===== Domain bitmask (Rules 4.5) ===== */

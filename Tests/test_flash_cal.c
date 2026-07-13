@@ -63,7 +63,7 @@ static void seed_valid_cal(const uint16_t offs[5])
 
 void setUp(void)
 {
-    mock_power_state = 0;
+    mock_power_state = (uint8_t)(DOM_ETH1 | DOM_ETH2);
     mock_power_idle  = 1;
     memset(flash_cal_buf, 0xFF, sizeof(flash_cal_buf));
     memset(mock_raw_avg, 0, sizeof(mock_raw_avg));
@@ -155,7 +155,7 @@ void test_calibrate_rejects_when_domains_on(void)
 
 void test_calibrate_rejects_when_sequencer_busy(void)
 {
-    mock_power_state = 0;
+    mock_power_state = (uint8_t)(DOM_ETH1 | DOM_ETH2);
     mock_power_idle  = 0;
     memset(flash_cal_buf, 0xAA, sizeof(flash_cal_buf));
 
@@ -201,6 +201,19 @@ void test_calibrate_roundtrip(void)
     }
 }
 
+void test_calibrate_accepts_eth_only_state(void)
+{
+    mock_power_state = (uint8_t)(DOM_ETH1 | DOM_ETH2);
+    mock_raw_avg[ADC_IDX_LCD_CURRENT]     = 1600;
+    mock_raw_avg[ADC_IDX_BL_CURRENT]      = 1640;
+    mock_raw_avg[ADC_IDX_SCALER_CURRENT]  = 1680;
+    mock_raw_avg[ADC_IDX_AUDIO_L_CURRENT] = 1700;
+    mock_raw_avg[ADC_IDX_AUDIO_R_CURRENT] = 1720;
+
+    uint8_t r = flash_cal_calibrate();
+    TEST_ASSERT_EQUAL_UINT8(0, r);
+}
+
 /* ===== Runner ===== */
 int main(void)
 {
@@ -212,6 +225,7 @@ int main(void)
     RUN_TEST(test_load_wrong_version_keeps_default_offsets);
     RUN_TEST(test_calibrate_rejects_when_domains_on);
     RUN_TEST(test_calibrate_rejects_when_sequencer_busy);
+    RUN_TEST(test_calibrate_accepts_eth_only_state);
     RUN_TEST(test_calibrate_roundtrip);
     return UNITY_END();
 }

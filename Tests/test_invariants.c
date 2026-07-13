@@ -74,9 +74,9 @@ void test_proto_etx_is_0x03(void)
     TEST_ASSERT_EQUAL_HEX8(0x03, PROTO_ETX);
 }
 
-void test_get_status_data_len_is_37(void)
+void test_get_status_data_len_is_22(void)
 {
-    TEST_ASSERT_EQUAL_UINT(37, GET_STATUS_DATA_LEN);
+    TEST_ASSERT_EQUAL_UINT(22, GET_STATUS_DATA_LEN);
 }
 
 void test_ping_response_is_0xAA(void)
@@ -305,7 +305,7 @@ int main(void)
     /* UART */
     RUN_TEST(test_proto_stx_is_0x02);
     RUN_TEST(test_proto_etx_is_0x03);
-    RUN_TEST(test_get_status_data_len_is_37);
+    RUN_TEST(test_get_status_data_len_is_22);
     RUN_TEST(test_ping_response_is_0xAA);
     /* Commands */
     RUN_TEST(test_cmd_ping);

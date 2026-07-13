@@ -1,9 +1,14 @@
-# Общие функции UART-тестов POWER_Controller.
+# UART protocol helpers for POWER_Controller (bench tools over USB-UART).
 # shellcheck shell=bash
 
-_TESTS_UART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_UART_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config.sh
-source "${_TESTS_UART_DIR}/config.sh"
+source "${_UART_LIB_DIR}/config.sh"
+
+# Always-on ETH domain bits in GET_STATUS.state (DOM_ETH1|DOM_ETH2).
+STATE_ETH_ALWAYS_ON_HEX="${STATE_ETH_ALWAYS_ON_HEX:-0x30}"
+# Managed domains that must be clear when only ETH is on (bits 0..3,6).
+STATE_MANAGED_OFF_CLEAR_MASK_HEX="${STATE_MANAGED_OFF_CLEAR_MASK_HEX:-0x4f}"
 
 _fd_open=0
 
@@ -469,17 +474,17 @@ fault_wait_flags() {
   return 1
 }
 
-# Валидный кадр GET_STATUS: 42 байта, CMD=0x04, LEN=0x25 (37 DATA), ETX=0x03
+# Валидный кадр GET_STATUS: 27 байт, CMD=0x04, LEN=0x16 (22 DATA), ETX=0x03
 validate_get_status_hex() {
   local hex=$1
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 ok = (
-    len(raw) == 42
+    len(raw) == 27
     and raw[0] == 0x02
     and raw[1] == 0x04
-    and raw[2] == 0x25
+    and raw[2] == 0x16
     and raw[-1] == 0x03
 )
 sys.exit(0 if ok else 1)
@@ -525,20 +530,20 @@ sys.exit(0 if crc8_calc(body) == crc_rx else 1)
 PY
 }
 
-# Парсинг GET_STATUS (37 байт DATA) — вывод key=value
+# Парсинг GET_STATUS (22 байта DATA) — вывод key=value
 parse_get_status_hex() {
   local hex=$1
   python3 - "$hex" <<'PY'
 import struct, sys
 h = sys.argv[1].replace(' ', '').strip().lower()
 raw = bytes.fromhex(h)
-if len(raw) != 42:
-    print(f'error=bad_frame_len len={len(raw)} expected=42', file=sys.stderr)
+if len(raw) != 27:
+    print(f'error=bad_frame_len len={len(raw)} expected=27', file=sys.stderr)
     sys.exit(2)
-if raw[0] != 0x02 or raw[1] != 0x04 or raw[2] != 0x25 or raw[-1] != 0x03:
+if raw[0] != 0x02 or raw[1] != 0x04 or raw[2] != 0x16 or raw[-1] != 0x03:
     print('error=bad_header_or_etx', file=sys.stderr)
     sys.exit(2)
-data = raw[3:40]
+data = raw[3:25]
 off = 0
 for n in ['v24','v12','v5','v3v3']:
     v = struct.unpack_from('<H', data, off)[0]
@@ -548,29 +553,12 @@ for n in ['i_lcd','i_backlight','i_scaler','i_audio_l','i_audio_r']:
     v = struct.unpack_from('<h', data, off)[0]
     print(f'{n}={v}')
     off += 2
-for n in ['temp0','temp1']:
-    v = struct.unpack_from('<h', data, off)[0]
-    print(f'{n}={v}')
-    off += 2
-state = data[22]
-fault = struct.unpack_from('<H', data, 23)[0]
-inputs = data[25]
-dseq = data[26]
-last_mask_lo = data[27]
-last_value_lo = data[28]
-rf = int.from_bytes(data[29:33], 'little')
-bc = int.from_bytes(data[33:37], 'little')
+state = data[18]
+fault = struct.unpack_from('<H', data, 19)[0]
+inputs = data[21]
 print(f'state=0x{state:02x}')
 print(f'fault_flags=0x{fault:04x}')
 print(f'inputs=0x{inputs:02x}')
-print(f'dseq={dseq}')
-print(f'last_power_ctrl_mask_lo=0x{last_mask_lo:02x}')
-print(f'last_power_ctrl_value_lo=0x{last_value_lo:02x}')
-bor_diag = {0xE1:'bl_pre',0xE2:'bl_on',0xE3:'scaler_pre',0xE4:'scaler_on',0xE5:'lcd_pre',0xE6:'lcd_on'}
-if last_value_lo in bor_diag:
-    print(f'bor_diag={bor_diag[last_value_lo]}')
-print(f'reset_flags_raw=0x{rf:08x}')
-print(f'boot_counter={bc}')
 print(f'pgood={(inputs >> 6) & 1}')
 PY
 }
@@ -600,6 +588,17 @@ sys.exit(0 if ok else 1)
 PY
 }
 
+expect_nack_error() {
+  local hex=$1 expected=$2
+  python3 - "$hex" "$expected" <<'PY'
+import sys
+b = bytes.fromhex(sys.argv[1].replace(' ',''))
+expected = int(sys.argv[2], 0)
+ok = len(b) >= 6 and b[0] == 0x02 and b[1] == 0xFF and b[2] == 0x01 and b[3] == expected
+sys.exit(0 if ok else 1)
+PY
+}
+
 expect_get_status_clean() {
   local hex=$1
   local parsed
@@ -607,7 +606,7 @@ expect_get_status_clean() {
   local state fault
   state="$(echo "$parsed" | awk -F= '/^state=/{print $2}')"
   fault="$(echo "$parsed" | awk -F= '/^fault_flags=/{print $2}')"
-  [[ "$state" == "0x00" && "$fault" == "0x0000" ]]
+  [[ "$state" == "0x30" && "$fault" == "0x0000" ]]
 }
 
 ensure_clean_state() {
@@ -640,9 +639,9 @@ expect_fault_flags() {
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 exp = sys.argv[2].lower()
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-fault = raw[26] | (raw[27] << 8)
+fault = raw[22] | (raw[23] << 8)
 if exp.startswith('has:'):
     mask = int(exp[4:], 0)
     sys.exit(0 if (fault & mask) == mask else 1)
@@ -656,9 +655,9 @@ expect_state_bits() {
   python3 - "$hex" "$set_mask" "$clear_mask" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-state = raw[25]
+state = raw[21]
 set_m = int(sys.argv[2], 0)
 clr_m = int(sys.argv[3], 0)
 ok = ((state & set_m) == set_m) and ((state & clr_m) == 0)
@@ -672,7 +671,7 @@ expect_state_unchanged() {
 import sys
 def state(h):
     raw = bytes.fromhex(h.replace(' ', ''))
-    return raw[25] if len(raw) == 42 else None
+    return raw[21] if len(raw) == 27 else None
 a, b = state(sys.argv[1]), state(sys.argv[2])
 sys.exit(0 if a is not None and a == b else 1)
 PY
@@ -683,9 +682,9 @@ expect_fault_reserved_clear() {
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-fault = raw[26] | (raw[27] << 8)
+fault = raw[22] | (raw[23] << 8)
 sys.exit(0 if (fault & 0x8000) == 0 else 1)
 PY
 }

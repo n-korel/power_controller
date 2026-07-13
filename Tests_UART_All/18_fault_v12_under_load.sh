@@ -20,7 +20,7 @@ expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
 gs="$(periph_fault_wait_latched "${FAULT_V12_RANGE_FLAG}" "${FAULT_WAIT_TRIES_VOLT:-30}")" \
   || die "expected FAULT_V12_RANGE (${FAULT_V12_RANGE_FLAG})"
 parse_get_status_hex "$gs"
-expect_state_bits "$gs" 0 0xff || die "expected safe state=0"
+expect_state_bits "$gs" 0x30 0x4f || die "expected safe state=0x30"
 expect_fault_reserved_clear "$gs" || die "FAULT_RESERVED bit 15 must stay 0"
 
 hex="$(fault_restore_v12_defaults)" || die "SET_THRESHOLDS restore: no response"

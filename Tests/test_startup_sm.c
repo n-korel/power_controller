@@ -26,6 +26,10 @@
 #define AUTOSTART_TICK_MS  400U
 #endif
 
+/* ETH1/ETH2 are enabled unconditionally by power_manager_init() (always-on
+ * domains, no sequencing) and stay on through display auto-startup. */
+#define ETH_BOOT_DEFAULT  (uint8_t)(DOM_ETH1 | DOM_ETH2)
+
 static void tick_ms(uint32_t ms)
 {
     for (uint32_t i = 0; i < ms; i++) {
@@ -69,7 +73,7 @@ void test_rejected_power_ctrl_preserves_pending_aux(void)
     TEST_ASSERT_EQUAL_UINT8(1, auto_startup_pending_aux);
 
     tick_ms(AUTOSTART_TICK_MS);
-    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(AUTOSTART_DISPLAY_STATE | ETH_BOOT_DEFAULT), power_state);
 }
 #endif
 
@@ -90,7 +94,7 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     TEST_ASSERT_EQUAL_UINT8(0, auto_startup_pending_aux);
 
     tick_ms(AUTOSTART_TICK_MS);
-    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(AUTOSTART_DISPLAY_STATE | ETH_BOOT_DEFAULT), power_state);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
 
     /* After full DN via host, SCALER+LCD bring-up must not resurrect TOUCH/AUDIO. */
@@ -101,7 +105,7 @@ void test_host_power_ctrl_clears_pending_aux_at_up_done(void)
     tick_ms(400);
 
     /* Host POWER_CTRL without BACKLIGHT must not pull BL in. */
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | ETH_BOOT_DEFAULT), power_state);
     TEST_ASSERT_EQUAL_UINT8(0, power_state & (DOM_TOUCH | DOM_AUDIO));
 }
 #endif
@@ -128,7 +132,7 @@ void test_process_without_begin_is_noop(void)
     tick_ms(PGOOD_TIMEOUT_MS + 1000);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
@@ -233,7 +237,7 @@ void test_pgood_high_full_up_completes_display_autostart(void)
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(AUTOSTART_DISPLAY_STATE | ETH_BOOT_DEFAULT), power_state);
 #if (ENABLE_BACKLIGHT_AUTO_STARTUP != 0U) && (ENABLE_BACKLIGHT_HW != 0U)
     TEST_ASSERT_TRUE(pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin) > 0);
 #else
@@ -254,7 +258,7 @@ void test_pgood_low_below_timeout_stays_waiting(void)
 
     TEST_ASSERT_EQUAL_INT(STARTUP_WAIT_PGOOD, sseq);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
 }
 
@@ -275,7 +279,7 @@ void test_pgood_high_on_last_ms_still_triggers_auto_startup(void)
     tick_ms(AUTOSTART_TICK_MS);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    TEST_ASSERT_EQUAL_HEX8(AUTOSTART_DISPLAY_STATE, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(AUTOSTART_DISPLAY_STATE | ETH_BOOT_DEFAULT), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 }
 #endif
@@ -291,8 +295,8 @@ void test_pgood_absent_5s_latches_fault_and_stays_safe(void)
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
     TEST_ASSERT_TRUE(fault_flags_set & FAULT_PGOOD_LOST);
-    /* Domains must remain fully OFF (safe state) */
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    /* Managed domains OFF; ETH stays always-on */
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     /* No domain GPIO was ever driven HIGH (fault policy may write LOW to
      * enforce safe state, which is fine). */
@@ -317,7 +321,7 @@ void test_pgood_recovery_after_timeout_does_not_auto_startup(void)
     tick_ms(10);
 
     TEST_ASSERT_EQUAL_INT(STARTUP_IDLE, sseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
 }

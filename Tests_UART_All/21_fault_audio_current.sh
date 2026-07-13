@@ -31,7 +31,7 @@ expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
 gs="$(fault_wait_flags "${FAULT_AUDIO_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \
   || die "expected FAULT_AUDIO (0x${FAULT_AUDIO_FLAG})"
 parse_get_status_hex "$gs"
-expect_state_bits "$gs" 0 0xff || die "expected safe state=0"
+expect_state_bits "$gs" 0x30 0x4f || die "expected safe state=0x30"
 expect_fault_reserved_clear "$gs" || die "FAULT_RESERVED bit 15 must stay 0"
 
 hex="$(fault_restore_i_audio_lr_max)" || die "SET_THRESHOLDS restore: no response"

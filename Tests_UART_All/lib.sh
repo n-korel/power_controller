@@ -1,13 +1,11 @@
-# Общие функции UART-тестов с периферией (поверх Tests_UART).
+# Peripheral bench UART tests (display connected).
 # shellcheck shell=bash
 
 _TESTS_UART_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config.sh
 source "${_TESTS_UART_ALL_DIR}/config.sh"
-# shellcheck source=../Tests_UART/lib.sh
-source "${_TESTS_UART_ALL_DIR}/../Tests_UART/lib.sh"
-# shellcheck source=config.sh
-source "${_TESTS_UART_ALL_DIR}/config.sh"
+# shellcheck source=../scripts/uart/lib.sh
+source "${_TESTS_UART_ALL_DIR}/../scripts/uart/lib.sh"
 
 # --- Display suite gating (run_all: SKIP вместо каскада FAIL) ---
 
@@ -19,7 +17,7 @@ periph_test_needs_display() {
     15_display_resequence.sh|16_stress_get_status_load.sh|17_iwdg_stress_load.sh|\
     18_fault_v12_under_load.sh|19_fault_scaler_current.sh|20_fault_backlight_current.sh|\
     21_fault_audio_current.sh|22_fault_reserved_display.sh|26_set_brightness_no_bl.sh|\
-    27_set_brightness_neg.sh|28_bl_bor_diag.sh|29_calibrate_offset_neg_display.sh) return 0 ;;
+    27_set_brightness_neg.sh|29_calibrate_offset_neg_display.sh) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -87,11 +85,11 @@ periph_prepare_zero_load() {
   # и expect_currents_in_window печатает "FAIL: ..." как часть диагностики. Здесь это ожидаемо —
   # мы сразу запускаем CALIBRATE_OFFSET. Поэтому проверяем "тихо" и не шумим "FAIL" в логе.
   if periph_currents_near_zero "$gs" >/dev/null 2>&1; then
-    log_info "current offsets OK (±${TELEMETRY_I_ZERO_MAX_MA} mA at state=0)"
+    log_info "current offsets OK (±${TELEMETRY_I_ZERO_MAX_MA} mA at state=0x30)"
     return 0
   fi
   periph_log_status "$gs" "before calibrate"
-  log_info "CALIBRATE_OFFSET (zero load, state=0; else spurious FAULT_SCALER/AUDIO)"
+  log_info "CALIBRATE_OFFSET (zero load, state=0x30; else spurious FAULT_SCALER/AUDIO)"
   hex="$(cmd_calibrate_offset)" || {
     log_fail "CALIBRATE_OFFSET: no ACK"
     return 1
@@ -120,7 +118,7 @@ periph_display_all_off() {
   hex="$(cmd_power_ctrl 0x0007 0x0000)" || return 1
   expect_ack_status "$hex" 0 || return 1
   sleep "${SEQ_DN_WAIT_SEC:-1.0}"
-  wait_get_status_state 0 0x07 >/dev/null
+  wait_get_status_state "$STATE_ETH_ALWAYS_ON_HEX" 0x07 >/dev/null
 }
 
 # Все домены (включая TOUCH/AUDIO после auto-startup при PGOOD)
@@ -131,12 +129,12 @@ periph_all_domains_off() {
   expect_ack_status "$hex" 0 || return 1
   sleep "${SEQ_DN_WAIT_SEC:-1.0}"
   if ! gs="$(wait_get_status_clean "${STATE_POLL_TRIES:-40}")"; then
-    log_fail "all domains off: timeout waiting state=0 fault=0"
+    log_fail "all domains off: timeout waiting state=0x30 fault=0"
     return 1
   fi
-  if ! expect_state_bits "$gs" 0x00 0; then
+  if ! expect_state_bits "$gs" "$STATE_ETH_ALWAYS_ON_HEX" "$STATE_MANAGED_OFF_CLEAR_MASK_HEX"; then
     periph_log_status "$gs" "all domains off"
-    log_fail "all domains off: state!=0x00 (e.g. 0x4B auto-startup tail — retry RESET_FAULT)"
+    log_fail "all domains off: state!=0x30 (e.g. 0x4B auto-startup tail — retry RESET_FAULT)"
     return 1
   fi
 }
@@ -148,23 +146,23 @@ periph_state_is_autostart_tail() {
   python3 - "$hex" <<'PY'
 import sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-sys.exit(0 if raw[25] == 0x4B else 1)
+sys.exit(0 if raw[21] == 0x4B else 1)
 PY
 }
 
 periph_strip_nondisplay_domains() {
   local hex gs
   gs="$(cmd_get_status 2>/dev/null)" || return 1
-  if expect_state_bits "$gs" 0x00 "$PERIPH_PREP_NONDISPLAY_MASK_HEX"; then
+  if expect_state_bits "$gs" "$STATE_ETH_ALWAYS_ON_HEX" "$PERIPH_PREP_NONDISPLAY_MASK_HEX"; then
     return 0
   fi
   log_info "clear non-display domains (mask=0x78 value=0)" >&2
   hex="$(cmd_power_ctrl 0x0078 0x0000)" || return 1
   expect_ack_status "$hex" 0 || return 1
   sleep "${AUDIO_SEQ_WAIT_SEC:-0.25}"
-  if ! gs="$(wait_get_status_state 0x00 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" 20)"; then
+  if ! gs="$(wait_get_status_state "$STATE_ETH_ALWAYS_ON_HEX" "$PERIPH_PREP_NONDISPLAY_MASK_HEX" 20)"; then
     gs="$(cmd_get_status 2>/dev/null)" || gs=""
     [[ -n "$gs" ]] && periph_log_status "$gs" "strip non-display failed"
     return 1
@@ -195,7 +193,7 @@ periph_display_scaler_lcd_on() {
       if expect_fault_flags "$gs" "has:0x2001"; then
         log_fail "FAULT_SEQ_ABORT|FAULT_SCALER — check SCALER_POWER_M (PB1) / SEQ_VERIFY"
       elif expect_fault_flags "$gs" "has:0x0001"; then
-        log_fail "FAULT_SCALER — often false trip >1500 mA: run CALIBRATE_OFFSET at state=0"
+        log_fail "FAULT_SCALER — often false trip >1500 mA: run CALIBRATE_OFFSET at state=0x30"
       fi
     fi
     return 1
@@ -290,9 +288,9 @@ expect_rails_in_range() {
   python3 - "$hex" <<'PY'
 import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-data = raw[3:40]
+data = raw[3:25]
 off = 0
 rails = {}
 for n in ('v24', 'v12', 'v5', 'v3v3'):
@@ -322,9 +320,9 @@ import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
 i_min = int(sys.argv[2])
 i_max = int(sys.argv[3])
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-data = raw[3:40]
+data = raw[3:25]
 names = ['i_lcd', 'i_backlight', 'i_scaler', 'i_audio_l', 'i_audio_r']
 vals = {}
 off = 8
@@ -365,9 +363,9 @@ periph_get_current_ma() {
   python3 - "$hex" <<'PY'
 import os, struct, sys
 raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
+if len(raw) != 27:
     sys.exit(1)
-data = raw[3:40]
+data = raw[3:25]
 offs = {'i_lcd': 8, 'i_backlight': 10, 'i_scaler': 12, 'i_audio_l': 14, 'i_audio_r': 16}
 ch = os.environ.get('CHANNEL', '')
 if ch not in offs:
@@ -462,30 +460,3 @@ fault_restore_i_audio_lr_max() {
   fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-800}"
 }
 
-# После успешного BL ON: last_power_ctrl сохранён, нет BOR-маркера 0xE1..0xE6
-periph_expect_bl_power_ctrl_ok() {
-  local hex=$1
-  python3 - "$hex" <<'PY'
-import sys
-raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-if len(raw) != 42:
-    sys.exit(1)
-data = raw[3:40]
-mask_lo = data[27]
-value_lo = data[28]
-bor = {0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6}
-ok = True
-if mask_lo == 0:
-    print('FAIL: last_power_ctrl_mask_lo=0x00 (MCU reset during BL?)', file=sys.stderr)
-    ok = False
-elif not (mask_lo & 0x04):
-    print(f'FAIL: last_power_ctrl_mask_lo=0x{mask_lo:02x} (BACKLIGHT bit missing)', file=sys.stderr)
-    ok = False
-if value_lo in bor:
-    print(f'FAIL: bor_diag stage value_lo=0x{value_lo:02x}', file=sys.stderr)
-    ok = False
-if ok:
-    print(f'last_power_ctrl mask_lo=0x{mask_lo:02x} value_lo=0x{value_lo:02x} (no BOR marker)')
-sys.exit(0 if ok else 1)
-PY
-}

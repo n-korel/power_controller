@@ -35,7 +35,7 @@
 23. `BACKLIGHT` запрещено включать, если `SCALER` выключен или `LCD` выключен.
 24. При запросе `SCALER=OFF` или `LCD=OFF` при включённом `BACKLIGHT` выполняется корректный shutdown sequencing без прямого выключения.
 25. Safe state на старте обязателен до обработки любых команд UART и до любых секвенсов.
-26. В safe state все домены питания (active HIGH) установлены в OFF (GPIO LOW).
+26. В safe state все домены питания (active HIGH) установлены в OFF (GPIO LOW), кроме `ETH1` и `ETH2`, которые всегда удерживаются в HIGH.
 27. В safe state линии `PWRBTN#` и `RSTBTN#` (open-drain) находятся в release (не тянут в LOW).
 28. В safe state усилитель удерживается в `SDZ=LOW` (shutdown) и `MUTE=HIGH` (mute).
 29. `BACKLIGHT` не включается автоматически при старте, если явно не запрошено по UART.
@@ -60,3 +60,4 @@
 48. При включённом `IWDG` refresh выполняется ровно в одном месте main loop один раз за итерацию.
 49. Refresh `IWDG` выполняется после обработки UART, ADC, state machine и fault-логики.
 50. Refresh `IWDG` запрещён из ISR, HAL callback и низкоуровневых функций периферии.
+51. `ETH1` и `ETH2` никогда не выключаются прошивкой: ни по `POWER_CTRL`, ни по `power_force_off_domains()`, ни при fault.

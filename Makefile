@@ -410,35 +410,70 @@ test_%:
 	$(MAKE) -f Tests/Makefile $@
 
 #######################################
-# BENCH UART TESTS (Tests_UART/)
-# Bare board + USB-UART 3.3 V on UART0 (no Q7 / no display).
-#   make test-uart
-#   make test-uart UART_DEVICE=/dev/ttyACM0
-#   make test-uart-fault   — optional: expected SEQ_ABORT without display
-#
 # PERIPHERAL UART TESTS (Tests_UART_All/)
 # Display/audio connected, USB-UART, no Q7:
 #   make test-uart-all
 #######################################
 
 UART_DEVICE ?= /dev/ttyUSB0
-TESTS_UART    = Tests_UART
-
 TESTS_UART_ALL = Tests_UART_All
 
-.PHONY: test-uart test-uart-fault test-uart-reset test-uart-all
-
-test-uart:
-	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/run_all_bare_board.sh
-
-test-uart-fault:
-	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/13_optional_power_ctrl_seq_fault.sh
-
-test-uart-reset:
-	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART)/03_reset_fault.sh
+.PHONY: test-uart-all
 
 test-uart-all:
 	UART_DEVICE=$(UART_DEVICE) bash $(TESTS_UART_ALL)/run_all_peripheral.sh
+
+#######################################
+# BACKLIGHT (scripts/backlight/, USB-UART)
+#   make bl-ping
+#   make bl-status
+#   make bl-on
+#   make bl-on-display          # SCALER+LCD, затем BACKLIGHT
+#   make bl-off
+#   make bl-set BL_PERCENT=50   # 0…100 (%)
+#   make bl-set-pwm BL_PWM=500  # 0…1000
+#   make bl-preset-dim|bl-preset-mid|bl-preset-max
+#   make bl UART_DEVICE=/dev/ttyACM0 bl-set BL_PERCENT=30
+#######################################
+
+SCRIPTS_BL   = scripts/backlight
+BL_PERCENT  ?= 50
+BL_PWM        ?= 500
+
+.PHONY: bl bl-ping bl-status bl-on bl-on-display bl-off bl-set bl-set-pwm \
+        bl-preset-dim bl-preset-mid bl-preset-max
+
+bl: bl-ping
+
+bl-ping:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh ping
+
+bl-status:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh status
+
+bl-on:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh on
+
+bl-on-display:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh on --with-display
+
+bl-off:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh off
+
+bl-set:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh set $(BL_PERCENT)
+
+bl-set-pwm:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh set pwm $(BL_PWM)
+
+bl-preset-dim:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh preset dim
+
+bl-preset-mid:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh preset mid
+
+bl-preset-max:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh preset max
 
 warnings-check:
 	@echo ">>> [warnings-check] arm-none-eabi-gcc strict warnings on user code"

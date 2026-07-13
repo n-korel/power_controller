@@ -24,7 +24,7 @@ sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 gs="$(periph_fault_wait_latched "${FAULT_LCD_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \
   || die "expected FAULT_LCD (${FAULT_LCD_FLAG}) within ~${FAULT_WAIT_TRIES:-40} polls"
 parse_get_status_hex "$gs"
-expect_state_bits "$gs" 0 0xff || die "expected state=0 (safe state) with FAULT_LCD latched"
+expect_state_bits "$gs" 0x30 0x4f || die "expected state=0x30 (safe state) with FAULT_LCD latched"
 expect_fault_reserved_clear "$gs" || die "FAULT_RESERVED bit 15 must stay 0"
 
 hex="$(fault_restore_i_lcd_max)" || die "SET_THRESHOLDS restore: no response"

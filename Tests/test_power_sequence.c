@@ -17,6 +17,10 @@
 
 #include "power_manager.c"
 
+/* ETH1/ETH2 are enabled unconditionally by power_manager_init() (always-on
+ * domains, no sequencing) and stay on through every display UP/DOWN test. */
+#define ETH_BOOT_DEFAULT  (uint8_t)(DOM_ETH1 | DOM_ETH2)
+
 /* Advance simulated time by `ms` milliseconds, ticking the state
  * machine once per ms (as production main loop does). */
 static void tick_ms(uint32_t ms)
@@ -60,7 +64,7 @@ void test_full_up_sequence_completes_with_bl(void)
             SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ETH_BOOT_DEFAULT), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set);
 
     GPIO_PinState st;
@@ -95,7 +99,7 @@ void test_full_up_without_bl_leaves_backlight_off(void)
     tick_ms(250);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | ETH_BOOT_DEFAULT), power_state);
     /* BL pin must never have been driven HIGH */
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin));
 }
@@ -134,7 +138,7 @@ void test_power_state_bits_set_only_after_adc_verify(void)
     TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
 
     tick_ms(SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 5);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ETH_BOOT_DEFAULT), power_state);
 }
 
 /* ===== UP verify timeouts (Rules §6) ===== */
@@ -206,7 +210,7 @@ void test_up_sequence_bl_verify_timeout_triggers_seq_abort(void)
 
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ETH_BOOT_DEFAULT), power_state);
 #endif
 }
 
@@ -293,7 +297,7 @@ void test_pgood_lost_during_down_does_not_introduce_unsafe_transitions(void)
     tick_ms(150);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
     /* No new flags must be synthesized by the DOWN SM itself. */
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_PGOOD_LOST | FAULT_SEQ_ABORT));
 }
@@ -418,7 +422,7 @@ void test_verify_timeout_boundaries_bl_stage(void)
 
     tick_ms(SEQ_DELAY_BL_RAMP_HOLD_MS + BL_SOFTSTART_RAMP_MS + 50);
     TEST_ASSERT_EQUAL_UINT32(0, fault_flags_set & (FAULT_SEQ_ABORT | FAULT_BACKLIGHT));
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ETH_BOOT_DEFAULT), power_state);
 #endif
 }
 
@@ -443,7 +447,7 @@ void test_full_down_sequence_orders_pwm_bl_lcd_rst_scaler(void)
     tick_ms(100);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ETH_BOOT_DEFAULT, power_state);
 
     /* Final GPIO states */
     GPIO_PinState st;
@@ -494,7 +498,7 @@ void test_bloff_only_sequence_10ms_delay_then_gpio(void)
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
 
     /* SCALER and LCD must stay ON (BL-only off) */
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | ETH_BOOT_DEFAULT), power_state);
     TEST_ASSERT_EQUAL_UINT32(0,
         pth_gpio_write_count(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin));
     TEST_ASSERT_EQUAL_UINT32(0,
@@ -518,7 +522,7 @@ void test_lcd_on_with_scaler_already_on_uses_partial_seq(void)
     tick_ms(200);
 
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | ETH_BOOT_DEFAULT), power_state);
     /* SCALER GPIO must NOT have been re-driven */
     TEST_ASSERT_EQUAL_UINT32(0,
         pth_gpio_write_count(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin));

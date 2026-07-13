@@ -25,11 +25,12 @@ void tearDown(void) {}
 
 /* ===== power_safe_state() — Rules §3.2, §12 ===== */
 
-void test_safe_state_all_domains_off(void)
+void test_safe_state_keeps_eth_on_and_turns_other_domains_off(void)
 {
     /* Seed with every domain marked as "on" so we can observe the reset */
     power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO |
                   DOM_ETH1 | DOM_ETH2 | DOM_TOUCH;
+    hal_stub_reset();
 
     power_safe_state();
 
@@ -42,14 +43,12 @@ void test_safe_state_all_domains_off(void)
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
     TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin, &st));
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
-    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
-    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin));
+    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin));
     TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin, &st));
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
 
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, power_state);
 }
 
 void test_safe_state_amp_sdz_low_mute_high(void)
@@ -169,7 +168,7 @@ void test_emergency_off_resets_dseq_to_idle(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_safe_state_all_domains_off);
+    RUN_TEST(test_safe_state_keeps_eth_on_and_turns_other_domains_off);
     RUN_TEST(test_safe_state_amp_sdz_low_mute_high);
     RUN_TEST(test_safe_state_pwm_zero);
     RUN_TEST(test_safe_state_rst_ch7511b_low);

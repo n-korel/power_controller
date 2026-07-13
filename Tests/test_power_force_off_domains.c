@@ -80,14 +80,12 @@ void test_force_off_audio_only(void)
     TEST_ASSERT_EQUAL_UINT8(0, amp_active);
 }
 
-void test_force_off_eth1_only(void)
+void test_force_off_eth1_only_is_noop(void)
 {
     seed_all_domains_on();
     hal_stub_reset();
 
     power_force_off_domains(DOM_ETH1);
-
-    assert_last_low(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
 
     assert_untouched(MUTE_GPIO_Port, MUTE_Pin);
     assert_untouched(SDZ_GPIO_Port, SDZ_Pin);
@@ -95,28 +93,29 @@ void test_force_off_eth1_only(void)
     assert_untouched(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin);
     assert_untouched(LCD_POWER_ON_GPIO_Port, LCD_POWER_ON_Pin);
     assert_untouched(BACKLIGHT_ON_GPIO_Port, BACKLIGHT_ON_Pin);
+    assert_untouched(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
     assert_untouched(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
     assert_untouched(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin);
 
-    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_ETH1);
-    TEST_ASSERT_EQUAL_HEX8(DOM_ALL & ~DOM_ETH1, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH1, power_state & DOM_ETH1);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ALL, power_state);
 }
 
-void test_force_off_eth2_only(void)
+void test_force_off_eth2_only_is_noop(void)
 {
     seed_all_domains_on();
     hal_stub_reset();
 
     power_force_off_domains(DOM_ETH2);
 
-    assert_last_low(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
+    assert_untouched(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
     assert_untouched(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
     assert_untouched(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin);
     assert_untouched(MUTE_GPIO_Port, MUTE_Pin);
     assert_untouched(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin);
 
-    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_ETH2);
-    TEST_ASSERT_EQUAL_HEX8(DOM_ALL & ~DOM_ETH2, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH2, power_state & DOM_ETH2);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ALL, power_state);
 }
 
 void test_force_off_touch_only(void)
@@ -208,11 +207,11 @@ void test_force_off_all_domains(void)
     assert_last_high(MUTE_GPIO_Port, MUTE_Pin);
     assert_last_low(SDZ_GPIO_Port, SDZ_Pin);
     assert_last_low(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin);
-    assert_last_low(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
-    assert_last_low(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
+    assert_untouched(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
+    assert_untouched(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
     assert_last_low(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin);
 
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, htim17.Instance_data.CCR1);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
@@ -223,7 +222,7 @@ void test_force_off_all_domains(void)
 
 void test_force_off_all_when_already_off(void)
 {
-    power_state = 0;
+    power_state = DOM_ETH1 | DOM_ETH2;
     dseq = DSEQ_IDLE;
     aseq = ASEQ_IDLE;
     amp_active = 0;
@@ -231,7 +230,7 @@ void test_force_off_all_when_already_off(void)
 
     power_force_off_domains(DOM_ALL);
 
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(DOM_ETH1 | DOM_ETH2, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
 
@@ -244,7 +243,7 @@ void test_force_off_all_when_already_off(void)
     TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_high_count(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin));
 }
 
-void test_force_off_eth1_when_already_off(void)
+void test_force_off_eth1_when_always_on_is_noop(void)
 {
     power_state = DOM_ETH2 | DOM_TOUCH;
     hal_stub_reset();
@@ -252,7 +251,7 @@ void test_force_off_eth1_when_already_off(void)
     power_force_off_domains(DOM_ETH1);
 
     TEST_ASSERT_EQUAL_HEX8(DOM_ETH2 | DOM_TOUCH, power_state);
-    assert_last_low(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
+    assert_untouched(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin);
     assert_untouched(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin);
     assert_untouched(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin);
 }
@@ -278,15 +277,15 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_force_off_audio_only);
-    RUN_TEST(test_force_off_eth1_only);
-    RUN_TEST(test_force_off_eth2_only);
+    RUN_TEST(test_force_off_eth1_only_is_noop);
+    RUN_TEST(test_force_off_eth2_only_is_noop);
     RUN_TEST(test_force_off_touch_only);
     RUN_TEST(test_force_off_scaler_uses_emergency_display_path);
     RUN_TEST(test_force_off_lcd_uses_emergency_display_path);
     RUN_TEST(test_force_off_backlight_uses_emergency_display_path);
     RUN_TEST(test_force_off_all_domains);
     RUN_TEST(test_force_off_all_when_already_off);
-    RUN_TEST(test_force_off_eth1_when_already_off);
+    RUN_TEST(test_force_off_eth1_when_always_on_is_noop);
     RUN_TEST(test_force_off_audio_when_already_off);
     return UNITY_END();
 }

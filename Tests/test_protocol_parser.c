@@ -12,15 +12,9 @@
 /* --- Mocks for uart_protocol.c dependencies --- */
 static uint16_t mock_voltage_mv[4];
 static int16_t  mock_current_ma[5];
-static int16_t  mock_temp[2];
 static uint8_t  mock_power_state;
 static uint16_t mock_fault_flags;
 static uint8_t  mock_input_packed;
-static uint8_t  mock_dseq;
-static uint8_t  mock_pwr_ctrl_mask_lo;
-static uint8_t  mock_pwr_ctrl_value_lo;
-static uint32_t mock_reset_flags_raw;
-static uint32_t mock_boot_counter;
 static uint8_t  mock_power_ctrl_result;
 static uint16_t mock_power_ctrl_mask;
 static uint16_t mock_power_ctrl_value;
@@ -43,13 +37,7 @@ static uint8_t mock_thresh_count;
 
 uint16_t adc_get_voltage_mv(uint8_t idx) { return (idx < 4) ? mock_voltage_mv[idx] : 0; }
 int16_t  adc_get_current_ma(uint8_t idx) { return (idx < 5) ? mock_current_ma[idx] : 0; }
-int16_t  adc_get_temp(uint8_t idx)       { return (idx < 2) ? mock_temp[idx] : -32768; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
-uint8_t  power_get_dseq_raw(void)        { return mock_dseq; }
-uint8_t  power_get_last_power_ctrl_mask_lo(void)  { return mock_pwr_ctrl_mask_lo; }
-uint8_t  power_get_last_power_ctrl_value_lo(void) { return mock_pwr_ctrl_value_lo; }
-uint32_t power_get_reset_flags_raw(void) { return mock_reset_flags_raw; }
-uint32_t power_get_boot_counter(void)    { return mock_boot_counter; }
 uint16_t fault_get_flags(void)           { return mock_fault_flags; }
 uint8_t  input_get_packed(void)          { return mock_input_packed; }
 
@@ -194,6 +182,7 @@ void setUp(void)
     pkt_q_tail = 0;
     pkt_q_count = 0;
     pkt_q_overflow_nack_pending = 0;
+    frame_error_nack_pending = 0;
     tx_busy_flag = 0;
     p_last_byte_ts = 0;
     p_data_cnt = 0;
@@ -216,7 +205,6 @@ void setUp(void)
     memset(tx_buf, 0, sizeof(tx_buf));
     for (uint8_t i = 0; i < 4; i++) mock_voltage_mv[i] = 0;
     for (uint8_t i = 0; i < 5; i++) mock_current_ma[i] = 0;
-    mock_temp[0] = -32768; mock_temp[1] = -32768;
     mock_power_state  = 0;
     mock_fault_flags  = 0;
     mock_input_packed = 0;
@@ -347,8 +335,11 @@ void test_parser_bad_crc_rejected(void)
     pkt[n - 2] ^= 0xFF;
 
     feed_bytes(pkt, n);
+    uart_protocol_process();
 
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_CRC, tx_buf[3]);
 }
 
 void test_parser_bad_etx_rejected(void)
@@ -358,14 +349,28 @@ void test_parser_bad_etx_rejected(void)
     pkt[n - 1] = 0xFF;
 
     feed_bytes(pkt, n);
+    uart_protocol_process();
 
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_FRAMING, tx_buf[3]);
 }
 
-void test_parser_garbage_before_stx_ignored(void)
+void test_parser_garbage_before_stx_nacked(void)
 {
+    /* Any stray byte outside a frame attempt (no STX yet) is reported as
+     * garbage, not silently dropped — lets the host tell noise apart from
+     * a genuine mid-frame protocol error. */
     uint8_t garbage[] = { 0xAA, 0x55, 0xFF };
     feed_bytes(garbage, sizeof(garbage));
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_GARBAGE, tx_buf[3]);
+
+    uart_tx_cplt_cb();
+    memset(tx_buf, 0, sizeof(tx_buf));
 
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_PING, NULL, 0);
@@ -378,9 +383,12 @@ void test_parser_oversized_data_rejected(void)
 {
     uint8_t prefix[] = { PROTO_STX, CMD_POWER_CTRL, 0x41 }; /* LEN=65 > 64 */
     feed_bytes(prefix, sizeof(prefix));
+    uart_protocol_process();
 
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_FRAMING, tx_buf[3]);
 }
 
 void test_parser_interbyte_timeout_resets(void)
@@ -393,10 +401,13 @@ void test_parser_interbyte_timeout_resets(void)
 
     uint8_t next[] = { 0x00 };
     feed_bytes(next, 1);
+    uart_protocol_process();
 
     /* Timeout aborted the prior packet; this byte becomes a non-STX → parser stays idle */
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_TIMEOUT, tx_buf[3]);
 }
 
 void test_parser_packet_timeout_resets(void)
@@ -409,6 +420,8 @@ void test_parser_packet_timeout_resets(void)
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_TIMEOUT, tx_buf[3]);
 }
 
 void test_hal_uart_rx_callback_rearms_receive_every_byte(void)
@@ -464,10 +477,10 @@ void test_dispatch_unknown_cmd_nack(void)
     TEST_ASSERT_EQUAL_HEX8(PROTO_STX, tx_buf[0]);
     TEST_ASSERT_EQUAL_HEX8(CMD_NACK,  tx_buf[1]);
     TEST_ASSERT_EQUAL_UINT8(1,        tx_buf[2]);
-    TEST_ASSERT_EQUAL_HEX8(0x01,      tx_buf[3]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_UNKNOWN_CMD, tx_buf[3]);
 }
 
-void test_dispatch_get_status_layout_37_bytes(void)
+void test_dispatch_get_status_layout_22_bytes(void)
 {
     mock_voltage_mv[0] = 24000;
     mock_voltage_mv[1] = 12000;
@@ -478,16 +491,9 @@ void test_dispatch_get_status_layout_37_bytes(void)
     mock_current_ma[2] = 1200;
     mock_current_ma[3] = 50;
     mock_current_ma[4] = 60;
-    mock_temp[0] = -32768;
-    mock_temp[1] = -32768;
     mock_power_state  = 0x47;
     mock_fault_flags  = 0x1234;
     mock_input_packed = 0xA5;
-    mock_dseq               = 0x0B;
-    mock_pwr_ctrl_mask_lo   = 0x55;
-    mock_pwr_ctrl_value_lo  = 0xAA;
-    mock_reset_flags_raw    = 0x0E000000U;
-    mock_boot_counter       = 0x00000042U;
 
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_GET_STATUS, NULL, 0);
@@ -508,18 +514,9 @@ void test_dispatch_get_status_layout_37_bytes(void)
     TEST_ASSERT_EQUAL_INT16(1200,  (int16_t)((uint16_t)d[12] | ((uint16_t)d[13] << 8)));
     TEST_ASSERT_EQUAL_INT16(50,    (int16_t)((uint16_t)d[14] | ((uint16_t)d[15] << 8)));
     TEST_ASSERT_EQUAL_INT16(60,    (int16_t)((uint16_t)d[16] | ((uint16_t)d[17] << 8)));
-    TEST_ASSERT_EQUAL_INT16(-32768, (int16_t)((uint16_t)d[18] | ((uint16_t)d[19] << 8)));
-    TEST_ASSERT_EQUAL_INT16(-32768, (int16_t)((uint16_t)d[20] | ((uint16_t)d[21] << 8)));
-    TEST_ASSERT_EQUAL_HEX8(0x47, d[22]);
-    TEST_ASSERT_EQUAL_HEX16(0x1234, (uint16_t)d[23] | ((uint16_t)d[24] << 8));
-    TEST_ASSERT_EQUAL_HEX8(0xA5, d[25]);
-    TEST_ASSERT_EQUAL_HEX8(0x0B, d[26]);
-    TEST_ASSERT_EQUAL_HEX8(0x55, d[27]);
-    TEST_ASSERT_EQUAL_HEX8(0xAA, d[28]);
-    TEST_ASSERT_EQUAL_HEX32(0x0E000000U,
-        (uint32_t)d[29] | ((uint32_t)d[30] << 8) | ((uint32_t)d[31] << 16) | ((uint32_t)d[32] << 24));
-    TEST_ASSERT_EQUAL_HEX32(0x00000042U,
-        (uint32_t)d[33] | ((uint32_t)d[34] << 8) | ((uint32_t)d[35] << 16) | ((uint32_t)d[36] << 24));
+    TEST_ASSERT_EQUAL_HEX8(0x47, d[18]);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, (uint16_t)d[19] | ((uint16_t)d[20] << 8));
+    TEST_ASSERT_EQUAL_HEX8(0xA5, d[21]);
 
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[3 + GET_STATUS_DATA_LEN + 1]);
 }
@@ -725,8 +722,9 @@ void test_parser_stx_in_data_resync_via_packet_timeout(void)
 
 void test_parser_stx_in_wait_etx_immediate_idle(void)
 {
-    /* STX at PS_WAIT_ETX: aborts frame immediately (no packet timeout). STX byte is
-     * consumed as a non-ETX trailer — does not open a new frame in the same feed. */
+    /* STX at PS_WAIT_ETX: aborts the pending frame immediately (no packet timeout
+     * needed) and, since this byte is itself a valid STX, is reused to start the
+     * next frame right away instead of being discarded. */
     uint8_t gs[8];
     uint16_t ng = build_packet(gs, CMD_GET_STATUS, NULL, 0);
 
@@ -740,13 +738,15 @@ void test_parser_stx_in_wait_etx_immediate_idle(void)
         parser_feed(gs[i]);
     TEST_ASSERT_EQUAL_INT(PS_WAIT_ETX, p_state);
 
-    parser_feed(PROTO_STX);
-    TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
-    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
-
     uint8_t ping[8];
     uint16_t np = build_packet(ping, CMD_PING, NULL, 0);
-    parse_bytes_direct(ping, np);
+
+    parser_feed(ping[0]); /* STX: aborts GET_STATUS frame, starts new frame */
+    TEST_ASSERT_EQUAL_INT(PS_READ_CMD, p_state);
+    TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
+
+    for (uint16_t i = 1; i < np; i++)
+        parser_feed(ping[i]);
 
     TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
     const proto_packet_t *pkt0 = queued_packet_peek();
@@ -964,6 +964,8 @@ void test_rx_ring_overflow_sets_flag_and_resets_parser(void)
     TEST_ASSERT_EQUAL_UINT8(0, rx_overflow);
     TEST_ASSERT_EQUAL_INT(PS_WAIT_STX, p_state);
     TEST_ASSERT_EQUAL_UINT16(rx_head, rx_tail);
+    TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_RX_OVERFLOW, tx_buf[3]);
 }
 
 void test_packet_queue_overflow_sets_pending_nack(void)
@@ -1044,7 +1046,7 @@ void test_dispatch_sends_nack_after_queue_overflow_when_queue_drained(void)
     uart_protocol_process();
     TEST_ASSERT_EQUAL_HEX8(CMD_NACK, tx_buf[1]);
     TEST_ASSERT_EQUAL_UINT8(1, tx_buf[2]);
-    TEST_ASSERT_EQUAL_HEX8(0x02, tx_buf[3]);
+    TEST_ASSERT_EQUAL_HEX8(NACK_ERR_QUEUE_OVERFLOW, tx_buf[3]);
     TEST_ASSERT_EQUAL_UINT8(0, pkt_q_overflow_nack_pending);
 }
 
@@ -1060,7 +1062,7 @@ int main(void)
     RUN_TEST(test_parser_zero_length_data);
     RUN_TEST(test_parser_bad_crc_rejected);
     RUN_TEST(test_parser_bad_etx_rejected);
-    RUN_TEST(test_parser_garbage_before_stx_ignored);
+    RUN_TEST(test_parser_garbage_before_stx_nacked);
     RUN_TEST(test_parser_oversized_data_rejected);
     RUN_TEST(test_parser_interbyte_timeout_resets);
     RUN_TEST(test_parser_packet_timeout_resets);
@@ -1068,7 +1070,7 @@ int main(void)
     RUN_TEST(test_dispatch_ping_responds_0xAA);
     RUN_TEST(test_hal_uart_dispatch_ping_calls_single_transmit_with_len6);
     RUN_TEST(test_dispatch_unknown_cmd_nack);
-    RUN_TEST(test_dispatch_get_status_layout_37_bytes);
+    RUN_TEST(test_dispatch_get_status_layout_22_bytes);
     RUN_TEST(test_dispatch_power_ctrl_bad_len_nack);
     RUN_TEST(test_dispatch_power_ctrl_rejects_unknown_bits_in_mask_or_value);
     RUN_TEST(test_dispatch_set_brightness_over_1000_rejected);

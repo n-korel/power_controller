@@ -1,5 +1,5 @@
-# Настройки натурных UART-тестов (пустая плата + USB-UART 3.3 В).
-# Переопределение: UART_DEVICE=/dev/ttyACM0 ./run_all_bare_board.sh
+# UART serial settings for bench tools (USB-UART 3.3 V on UART0).
+# Override: UART_DEVICE=/dev/ttyACM0 make bl-ping
 
 UART_DEVICE="${UART_DEVICE:-/dev/ttyUSB0}"
 UART_BAUD=115200
@@ -17,10 +17,9 @@ GET_STATUS_TIMEOUT_SEC=1.0
 GET_STATUS_TX_DELAY_SEC=0.35
 POWER_CTRL_TX_DELAY_SEC=0.25
 
-# Длины кадров ответа: ACK=6, GET_STATUS=3+37+1+1=42
-GET_STATUS_FRAME_LEN=42
+# Длины кадров ответа: ACK=6, GET_STATUS=3+22+1+1=27
+GET_STATUS_FRAME_LEN=27
 ACK_FRAME_LEN=6
-NO_RESPONSE_TIMEOUT_SEC=0.25
 
 # K.1: число опросов GET_STATUS и пауза между ними (сек)
 STRESS_GET_STATUS_COUNT=20

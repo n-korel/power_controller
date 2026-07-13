@@ -55,8 +55,11 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, RSTBTN_Pin|PWRBTN_Pin|MUTE_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, POWER_TOUCH_Pin|LCD_POWER_ON_Pin|SCALER_POWER_ON_Pin|POWER_ETH2_Pin
-                          |POWER_ETH1_Pin|RST_CH7511B_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, POWER_TOUCH_Pin|LCD_POWER_ON_Pin|SCALER_POWER_ON_Pin
+                          |RST_CH7511B_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, POWER_ETH2_Pin|POWER_ETH1_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, SDZ_Pin|POWER_AUDIO_Pin, GPIO_PIN_RESET);

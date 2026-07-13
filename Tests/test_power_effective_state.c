@@ -13,6 +13,7 @@
 #include "power_manager.c"
 
 #define DOM_DISPLAY (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT)
+#define ALWAYS_ON_ETH  (DOM_ETH1 | DOM_ETH2)
 
 static const dseq_state_t k_down_states[] = {
     DSEQ_DN_PWM_ZERO,
@@ -132,7 +133,8 @@ void test_effective_idle_reflects_power_state(void)
 {
     power_state = DOM_SCALER | DOM_LCD;
     dseq = DSEQ_IDLE;
-    TEST_ASSERT_EQUAL_HEX8(DOM_SCALER | DOM_LCD, power_effective_state_for_request());
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(DOM_SCALER | DOM_LCD | ALWAYS_ON_ETH),
+                           power_effective_state_for_request());
 }
 
 /* ===== Rule §23 via effective state (BACKLIGHT=ON) ===== */
@@ -193,7 +195,8 @@ void test_backlight_on_rejected_during_down_sequence(void)
 
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, r, "BACKLIGHT=ON during DOWN must be rejected");
         TEST_ASSERT_EQUAL_INT_MESSAGE(before, dseq, "dseq must not change");
-        TEST_ASSERT_EQUAL_HEX8_MESSAGE(ps_before, power_state, "power_state must not change");
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE((uint8_t)(ps_before | ALWAYS_ON_ETH), power_state,
+                                       "power_state must not change except always-on ETH");
     }
 }
 

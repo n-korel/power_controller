@@ -15,7 +15,6 @@ TESTS=(
   "03_display_scaler_lcd_on.sh"
   "04_telemetry_under_load.sh"
   "05_backlight_brightness.sh"
-  "28_bl_bor_diag.sh"
   "26_set_brightness_no_bl.sh"
   "27_set_brightness_neg.sh"
   "06_reset_bridge_display.sh"
@@ -102,6 +101,5 @@ if [[ "$DISPLAY_SEQ_BLOCKED" -eq 1 ]]; then
   printf 'Display blocked: %s\n' "$DISPLAY_SKIP_REASON"
 fi
 printf 'Unavailable without Q7: BOOTLOADER_ENTER OTA, Linux fault recovery, PGOOD+Q7 power cycle\n'
-printf 'Protocol/CRC/timeout suite (no display): make test-uart (Tests_UART/)\n'
 
 [[ "$fail" -eq 0 ]]

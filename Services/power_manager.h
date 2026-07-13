@@ -7,16 +7,6 @@ void    power_manager_init(void);
 void    power_manager_process(void);
 
 uint8_t power_get_state(void);
-/* Display sequencer phase (internal `dseq` enum cast to uint8_t). Idle=0.
- * Exposed last in GET_STATUS for bench UART debug. */
-uint8_t power_get_dseq_raw(void);
-/* Last POWER_CTRL request payload (low byte only, domain bits 0..6). */
-uint8_t power_get_last_power_ctrl_mask_lo(void);
-uint8_t power_get_last_power_ctrl_value_lo(void);
-/* Raw RCC reset flags snapshot (RCC->CSR) captured once at boot. */
-uint32_t power_get_reset_flags_raw(void);
-/* Monotonic boot counter stored in .noinit (retained across resets). */
-uint32_t power_get_boot_counter(void);
 /* Non-zero when display and audio sequencers are idle. */
 uint8_t power_is_idle(void);
 uint8_t power_ctrl_request(uint16_t mask, uint16_t value);

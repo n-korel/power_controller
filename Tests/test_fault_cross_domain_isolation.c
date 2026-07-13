@@ -4,7 +4,7 @@
  * Linear tests in test_fault_policy.c assert safe_state per fault flag in
  * isolation. Here we verify the full host recovery path:
  *
- *   1) fault in domain X -> full power_safe_state (all domains OFF);
+ *   1) fault in domain X -> power_safe_state (all managed domains OFF, ETH stays ON);
  *   2) fault_clear_flags() (RESET_FAULT) does not re-enable anything;
  *   3) POWER_CTRL can turn on domain Y independently (Y != X).
  *
@@ -97,7 +97,7 @@ static int last_gpio_write(const GPIO_TypeDef *port, uint16_t pin, GPIO_PinState
 
 static void assert_full_safe_state(void)
 {
-    TEST_ASSERT_EQUAL_HEX8(0, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH1 | DOM_ETH2, power_state);
     GPIO_PinState st;
     TEST_ASSERT_TRUE(last_gpio_write(SCALER_POWER_ON_GPIO_Port, SCALER_POWER_ON_Pin, &st));
     TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
@@ -130,7 +130,7 @@ static void run_isolation_case(const isolation_case_t *c)
 
     fault_clear_flags();
     TEST_ASSERT_EQUAL_HEX16_MESSAGE(0, fault_get_flags(), c->label);
-    TEST_ASSERT_EQUAL_HEX8_MESSAGE(0, power_state, c->label);
+    TEST_ASSERT_EQUAL_HEX8_MESSAGE(DOM_ETH1 | DOM_ETH2, power_state, c->label);
 
     uint8_t r = power_ctrl_request(c->recover_mask, c->recover_value);
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, r, c->label);
@@ -187,9 +187,9 @@ static const isolation_case_t k_cases[] = {
 #else
     {
         FAULT_SCALER, DOM_SCALER | DOM_LCD,
-        DOM_ETH1, DOM_ETH1, DOM_ETH1,
-        DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO,
-        "FAULT_SCALER -> ETH1",
+        DOM_SCALER, DOM_SCALER, DOM_SCALER,
+        DOM_BACKLIGHT | DOM_AUDIO,
+        "FAULT_SCALER -> SCALER",
     },
 #endif
     {
@@ -208,9 +208,9 @@ static const isolation_case_t k_cases[] = {
 #else
     {
         FAULT_BACKLIGHT, DOM_SCALER | DOM_LCD | DOM_BACKLIGHT,
-        DOM_ETH1, DOM_ETH1, DOM_ETH1,
-        DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_AUDIO,
-        "FAULT_BACKLIGHT -> ETH1",
+        DOM_SCALER, DOM_SCALER, DOM_SCALER,
+        DOM_BACKLIGHT | DOM_AUDIO,
+        "FAULT_BACKLIGHT -> SCALER",
     },
 #endif
     {
@@ -228,7 +228,7 @@ static const isolation_case_t k_cases[] = {
     {
         FAULT_ETH1, DOM_ETH1,
         DOM_SCALER, DOM_SCALER, DOM_SCALER,
-        DOM_ETH1 | DOM_AUDIO,
+        DOM_AUDIO,
         "FAULT_ETH1 -> SCALER",
     },
 #if (ENABLE_AUDIO_HW != 0U)
@@ -241,9 +241,9 @@ static const isolation_case_t k_cases[] = {
 #else
     {
         FAULT_TOUCH, DOM_TOUCH,
-        DOM_ETH1, DOM_ETH1, DOM_ETH1,
-        DOM_TOUCH | DOM_SCALER | DOM_AUDIO,
-        "FAULT_TOUCH -> ETH1",
+        DOM_SCALER, DOM_SCALER, DOM_SCALER,
+        DOM_TOUCH | DOM_AUDIO,
+        "FAULT_TOUCH -> SCALER",
     },
 #endif
 };
@@ -281,7 +281,7 @@ void test_audio_overcurrent_fault_safe_state_then_scaler_only_recovery(void)
 
     fault_clear_flags();
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
-    TEST_ASSERT_EQUAL_HEX8(0, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH1 | DOM_ETH2, power_state);
 
     set_i_nominal();
     TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(DOM_SCALER, DOM_SCALER));
@@ -317,7 +317,7 @@ void test_reset_fault_never_auto_enables_other_domain_after_audio_fault(void)
         systick_ms++;
     }
 
-    TEST_ASSERT_EQUAL_HEX8(0, power_state);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH1 | DOM_ETH2, power_state);
     TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags());
 }
 

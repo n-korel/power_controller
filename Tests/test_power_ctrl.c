@@ -25,17 +25,7 @@ volatile uint32_t systick_ms;
 
 #include "power_manager.c"
 
-/* Find the last GPIO write record targeting a specific pin */
-static int last_gpio_write(const GPIO_TypeDef *port, uint16_t pin, GPIO_PinState *out)
-{
-    for (int32_t i = (int32_t)hal_gpio_log_count - 1; i >= 0; i--) {
-        if (hal_gpio_log[i].port == port && hal_gpio_log[i].pin == pin) {
-            *out = hal_gpio_log[i].state;
-            return 1;
-        }
-    }
-    return 0;
-}
+#define ALWAYS_ON_ETH  (DOM_ETH1 | DOM_ETH2)
 
 void setUp(void)
 {
@@ -57,7 +47,7 @@ void test_backlight_on_rejected_without_scaler(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_LCD | ALWAYS_ON_ETH), power_state);
 }
 
 void test_backlight_on_rejected_without_lcd(void)
@@ -68,7 +58,7 @@ void test_backlight_on_rejected_without_lcd(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | ALWAYS_ON_ETH), power_state);
 }
 
 void test_backlight_on_rejected_without_both(void)
@@ -78,7 +68,7 @@ void test_backlight_on_rejected_without_both(void)
     uint8_t r = power_ctrl_request(DOM_BACKLIGHT, DOM_BACKLIGHT);
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
 }
 
@@ -101,7 +91,7 @@ void test_conflicting_scaler_off_and_backlight_on_is_rejected_atomically(void)
 {
     /* Conflict in one request: SCALER=OFF and BACKLIGHT=ON.
      * Must be rejected without starting any sequencing or changing state. */
-    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
+    power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ALWAYS_ON_ETH;
     dseq = DSEQ_IDLE;
 
     uint16_t mask  = DOM_SCALER | DOM_BACKLIGHT;
@@ -110,21 +100,21 @@ void test_conflicting_scaler_off_and_backlight_on_is_rejected_atomically(void)
     uint8_t r = power_ctrl_request(mask, value);
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ALWAYS_ON_ETH), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
 void test_idempotent_request_does_not_restart_display_sequence_or_toggle_gpio(void)
 {
     /* Already ON: repeating the same request must be a no-op. */
-    power_state = DOM_SCALER | DOM_LCD;
+    power_state = DOM_SCALER | DOM_LCD | ALWAYS_ON_ETH;
     dseq = DSEQ_IDLE;
     hal_stub_reset();
 
     uint8_t r = power_ctrl_request(DOM_SCALER | DOM_LCD, DOM_SCALER | DOM_LCD);
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | ALWAYS_ON_ETH), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
@@ -138,7 +128,7 @@ void test_unknown_bits_in_mask_or_value_are_rejected(void)
 
     uint8_t r = power_ctrl_request(mask, value);
     TEST_ASSERT_EQUAL_UINT8(1, r);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
@@ -190,30 +180,24 @@ void test_audio_cmd_rejected_when_aseq_busy(void)
 
 /* ===== Simple domains (ETH1, ETH2, TOUCH) ===== */
 
-void test_eth1_on_direct(void)
+void test_eth1_request_is_ignored_but_state_stays_on(void)
 {
-    power_state = 0;
+    power_state = DOM_ETH2;
 
     uint8_t r = power_ctrl_request(DOM_ETH1, DOM_ETH1);
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_TRUE(power_state & DOM_ETH1);
-
-    GPIO_PinState st;
-    TEST_ASSERT_TRUE(last_gpio_write(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
-void test_eth2_off_direct(void)
+void test_eth2_off_request_is_ignored_and_state_stays_on(void)
 {
-    power_state = DOM_ETH2;
+    power_state = DOM_ETH1;
 
     uint8_t r = power_ctrl_request(DOM_ETH2, 0);
     TEST_ASSERT_EQUAL_UINT8(0, r);
-    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_ETH2);
-
-    GPIO_PinState st;
-    TEST_ASSERT_TRUE(last_gpio_write(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
+    TEST_ASSERT_EQUAL_HEX8(DOM_ETH2, power_state & DOM_ETH2);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
 void test_touch_on_direct(void)
@@ -223,7 +207,7 @@ void test_touch_on_direct(void)
     uint8_t r = power_ctrl_request(DOM_TOUCH, DOM_TOUCH);
 #if (ENABLE_TOUCH_HW == 0U)
     TEST_ASSERT_EQUAL_UINT8(1, r);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 #else
     TEST_ASSERT_EQUAL_UINT8(0, r);
@@ -260,7 +244,7 @@ void test_display_up_rejected_when_pgood_low_scaler_on(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
@@ -275,7 +259,7 @@ void test_display_up_rejected_when_pgood_low_lcd_on_with_scaler_already_on(void)
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | ALWAYS_ON_ETH), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
@@ -290,7 +274,7 @@ void test_display_up_rejected_when_pgood_low_backlight_on_with_scaler_lcd_on(voi
 
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | ALWAYS_ON_ETH), power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 }
 
@@ -313,7 +297,7 @@ void test_scaler_off_with_backlight_on_starts_full_down_sequence(void)
     uint8_t r = power_ctrl_request(DOM_SCALER, 0);
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
-    TEST_ASSERT_EQUAL_UINT8(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, power_state);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | ALWAYS_ON_ETH), power_state);
 }
 
 void test_bl_off_starts_bl_only_shutdown(void)
@@ -362,7 +346,7 @@ void test_scaler_lcd_bl_on_together(void)
 #if (ENABLE_BACKLIGHT_HW == 0U)
     TEST_ASSERT_EQUAL_UINT8(1, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
 #else
     TEST_ASSERT_EQUAL_UINT8(0, r);
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_SCALER_ON, dseq);
@@ -378,7 +362,7 @@ void test_multiple_simple_domains_at_once(void)
     uint8_t r = power_ctrl_request(mask, mask);
 #if (ENABLE_TOUCH_HW == 0U)
     TEST_ASSERT_EQUAL_UINT8(1, r);
-    TEST_ASSERT_EQUAL_UINT8(0, power_state);
+    TEST_ASSERT_EQUAL_UINT8(ALWAYS_ON_ETH, power_state);
     TEST_ASSERT_EQUAL_UINT32(0, hal_gpio_log_count);
 #else
     TEST_ASSERT_EQUAL_UINT8(0, r);
@@ -387,10 +371,6 @@ void test_multiple_simple_domains_at_once(void)
     TEST_ASSERT_TRUE(power_state & DOM_TOUCH);
 
     GPIO_PinState st;
-    TEST_ASSERT_TRUE(last_gpio_write(POWER_ETH1_GPIO_Port, POWER_ETH1_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
-    TEST_ASSERT_TRUE(last_gpio_write(POWER_ETH2_GPIO_Port, POWER_ETH2_Pin, &st));
-    TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
     TEST_ASSERT_TRUE(last_gpio_write(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin, &st));
     TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
 #endif
@@ -411,8 +391,8 @@ int main(void)
     RUN_TEST(test_lcd_on_accepted_with_scaler);
     RUN_TEST(test_display_cmd_rejected_when_sequencer_busy);
     RUN_TEST(test_audio_cmd_rejected_when_aseq_busy);
-    RUN_TEST(test_eth1_on_direct);
-    RUN_TEST(test_eth2_off_direct);
+    RUN_TEST(test_eth1_request_is_ignored_but_state_stays_on);
+    RUN_TEST(test_eth2_off_request_is_ignored_and_state_stays_on);
     RUN_TEST(test_touch_on_direct);
     RUN_TEST(test_scaler_on_starts_full_up_sequence);
     RUN_TEST(test_display_up_rejected_when_pgood_low_scaler_on);

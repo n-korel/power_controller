@@ -15,7 +15,7 @@ hex="$(cmd_power_ctrl 0x0004 0x0000)" || die "no ACK"
 expect_ack_status "$hex" 0 || die "BACKLIGHT OFF only: expected status=0x00"
 sleep "${SEQ_DN_WAIT_SEC:-1.0}"
 
-gs="$(wait_get_status_state 0x03 0x7c "${STATE_POLL_TRIES:-40}")" || die "expected state=0x03 (SCALER+LCD ON, BL OFF)"
+gs="$(wait_get_status_state 0x03 0x4c "${STATE_POLL_TRIES:-40}")" || die "expected state=0x03 (SCALER+LCD ON, BL OFF)"
 expect_fault_flags "$gs" "0x0000" || die "expected fault=0 after BL OFF only"
 
 log_pass "BL OFF only: state=0x03 preserved, SCALER/LCD stay on"

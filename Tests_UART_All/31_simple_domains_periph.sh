@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# K.5: TOUCH / ETH1 / ETH2 toggle (when ENABLE_TOUCH_HW=1 on bench)
+# K.5: TOUCH toggle; ETH1/ETH2 always-on (POWER_CTRL for ETH is ignored)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-trap 'cmd_power_ctrl 0x0070 0x0000 >/dev/null 2>&1 || true; test_cleanup' EXIT
+trap 'cmd_power_ctrl 0x0040 0x0000 >/dev/null 2>&1 || true; test_cleanup' EXIT
 uart_open
 
 if [[ "${PERIPH_TOUCH_HW_ENABLED:-0}" == "0" ]]; then
@@ -15,7 +15,7 @@ fi
 
 periph_prepare_zero_load || die "prepare failed"
 
-for spec in "TOUCH:0x0040" "ETH1:0x0010" "ETH2:0x0020"; do
+for spec in "TOUCH:0x0040"; do
   label="${spec%%:*}"
   m="${spec##*:}"
   log_info "POWER_CTRL ${label} ON (${m})"
@@ -30,6 +30,13 @@ for spec in "TOUCH:0x0040" "ETH1:0x0010" "ETH2:0x0020"; do
   sleep 0.15
 done
 
+log_info "ETH OFF request ignored (mask=0x0030 value=0)"
+hex="$(cmd_power_ctrl 0x0030 0x0000)" || die "no ACK (ETH OFF)"
+expect_ack_status "$hex" 0 || die "ETH OFF: expected status=0x00 (ignored)"
+gs="$(cmd_get_status)" || die "no GET_STATUS after ETH OFF"
+expect_state_bits "$gs" "$STATE_ETH_ALWAYS_ON_HEX" "$STATE_MANAGED_OFF_CLEAR_MASK_HEX" \
+  || die "ETH bits must stay on after ignored OFF"
+
 gs="$(cmd_get_status)" || die "no final GET_STATUS"
 expect_get_status_clean "$gs" || die "expected clean state after domain toggles"
-log_pass "K.5 periph: TOUCH/ETH1/ETH2 toggle OK"
+log_pass "K.5 periph: TOUCH toggle OK, ETH always on"

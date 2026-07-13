@@ -13,7 +13,7 @@ GET_STATUS_TIMEOUT_SEC=1.0
 GET_STATUS_TX_DELAY_SEC=0.35
 POWER_CTRL_TX_DELAY_SEC=0.25
 
-GET_STATUS_FRAME_LEN=42
+GET_STATUS_FRAME_LEN=27
 ACK_FRAME_LEN=6
 
 # Секвенсинг дисплея: шаги 1–6 ~500–700 мс; запас на verify + опрос
@@ -33,11 +33,14 @@ TELEMETRY_I_CHANNELS="${TELEMETRY_I_CHANNELS:-i_lcd,i_scaler,i_audio_l,i_audio_r
 STATE_POLL_INTERVAL_SEC="${STATE_POLL_INTERVAL_SEC:-0.1}"
 STATE_POLL_TRIES="${STATE_POLL_TRIES:-40}"
 
-# Маска доменов не из дисплейной тройки (для проверок «только SCALER|LCD» после prepare=0):
-# AUDIO|TOUCH|ETH1|ETH2 = 0x08|0x40|0x10|0x20
-PERIPH_PREP_NONDISPLAY_MASK_HEX="${PERIPH_PREP_NONDISPLAY_MASK_HEX:-0x78}"
+# Маска доменов не из дисплейной тройки (AUDIO|TOUCH; ETH always-on и не проверяется):
+# AUDIO|TOUCH = 0x08|0x40
+PERIPH_PREP_NONDISPLAY_MASK_HEX="${PERIPH_PREP_NONDISPLAY_MASK_HEX:-0x48}"
 
-# Пороги шин (мВ) — как Tests_UART / config.h
+# Always-on ETH in GET_STATUS.state
+STATE_ETH_ALWAYS_ON_HEX="${STATE_ETH_ALWAYS_ON_HEX:-0x30}"
+
+# Пороги шин (мВ) — как scripts/uart/config.sh / config.h
 THRESH_V12_MIN_MV=10000
 THRESH_V12_MAX_MV=13000
 THRESH_V5_MIN_MV=4500
@@ -50,7 +53,7 @@ LOAD_I_MIN_MA="${LOAD_I_MIN_MA:-5}"
 LOAD_I_MAX_MA="${LOAD_I_MAX_MA:-3200}"
 LOAD_I_CHANNELS="${LOAD_I_CHANNELS:-i_lcd,i_scaler}"
 
-# Калибровка нуля (state=0)
+# Калибровка нуля (state=0x30, только ETH1|ETH2)
 TELEMETRY_I_ZERO_MIN_MA=-200
 TELEMETRY_I_ZERO_MAX_MA=200
 

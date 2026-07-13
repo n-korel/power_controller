@@ -50,43 +50,124 @@ def parse_simple_yaml_map(text: str) -> dict[str, str]:
     return out
 
 
+def parse_inline_object_body(inner: str) -> dict[str, str]:
+    """
+    Parse top-level scalar key: value pairs from an inline object body.
+    Skips nested inline objects and arrays (e.g. req_fields).
+    """
+    out: dict[str, str] = {}
+    i = 0
+    n = len(inner)
+    while i < n:
+        while i < n and inner[i] in " \t\n\r,":
+            i += 1
+        if i >= n:
+            break
+        key_start = i
+        while i < n and inner[i] not in ":,":
+            i += 1
+        if i >= n or inner[i] != ":":
+            break
+        key = inner[key_start:i].strip()
+        i += 1
+        while i < n and inner[i] in " \t\n\r":
+            i += 1
+        if i >= n:
+            out[key] = ""
+            break
+        if inner[i] in "{[":
+            open_b = inner[i]
+            close_b = "}" if open_b == "{" else "]"
+            depth = 0
+            while i < n:
+                if inner[i] == open_b:
+                    depth += 1
+                elif inner[i] == close_b:
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+            continue
+        val_start = i
+        while i < n and inner[i] not in ",\n":
+            i += 1
+        out[key] = inner[val_start:i].strip()
+    return out
+
+
+def collect_inline_list_object(lines: list[str], start: int) -> tuple[str, int]:
+    """
+    From lines[start] starting with '- {', return the full '{...}' text and
+    the index of the next line after the object.
+    """
+    s = lines[start].strip()
+    if not s.startswith("- "):
+        die(f"unexpected list item format: {lines[start]!r}")
+    chunk = s[2:].strip()
+    depth = 0
+    for c in chunk:
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+    parts = [chunk]
+    i = start
+    while depth > 0:
+        i += 1
+        if i >= len(lines):
+            die(f"unclosed inline object starting at line {start + 1}")
+        cont = lines[i].strip()
+        parts.append(cont)
+        for c in cont:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+    combined = " ".join(parts)
+    return combined, i + 1
+
+
 def parse_inline_object(line: str) -> dict[str, str]:
     """
     Parses: "- {a: b, c: d}" into {"a":"b","c":"d"}.
-    Assumes no nested braces and no commas inside values.
+    Also accepts a single-line "- { ... }" item; multi-line items use
+    collect_inline_list_object() + parse_inline_object_body().
     """
     s = line.strip()
-    if not s.startswith("- {") or not s.endswith("}"):
+    if not s.startswith("- "):
         die(f"unexpected list item format: {line!r}")
-    inner = s[len("- {") : -1].strip()
-    if not inner:
-        return {}
-    parts = [p.strip() for p in inner.split(",")]
-    out: dict[str, str] = {}
-    for p in parts:
-        if ":" not in p:
-            die(f"bad inline field: {p!r} in line {line!r}")
-        k, v = p.split(":", 1)
-        out[k.strip()] = v.strip()
-    return out
+    text = s[2:].strip()
+    if not text.startswith("{") or not text.endswith("}"):
+        die(f"unexpected list item format: {line!r}")
+    return parse_inline_object_body(text[1:-1])
 
 
 def parse_adc_channels_yaml(text: str) -> tuple[dict[str, str], list[dict[str, str]]]:
     scalars = parse_simple_yaml_map(text)
+    lines = text.splitlines()
     channels: list[dict[str, str]] = []
     in_channels = False
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         if not line or line.startswith("#"):
+            i += 1
             continue
         if line == "channels:":
             in_channels = True
+            i += 1
             continue
         if not in_channels:
+            i += 1
             continue
         if not line.startswith("- "):
+            i += 1
             continue
-        channels.append(parse_inline_object(line))
+        combined, i = collect_inline_list_object(lines, i)
+        if not combined.startswith("{") or not combined.endswith("}"):
+            die(f"unexpected list item format: {combined!r}")
+        channels.append(parse_inline_object_body(combined[1:-1]))
     return scalars, channels
 
 
@@ -125,19 +206,29 @@ def parse_protocol_yaml(text: str) -> dict[str, object]:
     # commands
     commands: list[dict[str, str]] = []
     in_commands = False
-    for ln in lines:
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
         s = ln.strip()
         if s == "commands:":
             in_commands = True
+            i += 1
             continue
-        if in_commands:
-            if s and not s.startswith("- "):
-                # next section
-                if not ln.startswith(" "):
-                    in_commands = False
-                    continue
-            if s.startswith("- "):
-                commands.append(parse_inline_object(s))
+        if not in_commands:
+            i += 1
+            continue
+        if s and not s.startswith("- "):
+            if not ln.startswith(" "):
+                in_commands = False
+            i += 1
+            continue
+        if not s.startswith("- "):
+            i += 1
+            continue
+        combined, i = collect_inline_list_object(lines, i)
+        if not combined.startswith("{") or not combined.endswith("}"):
+            die(f"unexpected list item format: {combined!r}")
+        commands.append(parse_inline_object_body(combined[1:-1]))
 
     # get_status layout
     gs_layout: list[dict[str, str]] = []

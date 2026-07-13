@@ -79,6 +79,7 @@ static uint8_t pkt_q_head;
 static uint8_t pkt_q_tail;
 static uint8_t pkt_q_count;
 static uint8_t pkt_q_overflow_nack_pending;
+static uint8_t frame_error_nack_pending;
 
 /* TX buffer: STX + CMD + LEN + DATA(max64) + CRC + ETX = 69 max */
 static uint8_t  tx_buf[PROTO_MAX_DATA + 5];
@@ -97,6 +98,7 @@ void uart_protocol_init(void)
     pkt_q_tail = 0;
     pkt_q_count = 0;
     pkt_q_overflow_nack_pending = 0;
+    frame_error_nack_pending = 0;
     if (HAL_UART_Receive_IT(&huart1, (uint8_t *)&rx_byte, 1) != HAL_OK) {
         Error_Handler();
     }
@@ -149,14 +151,23 @@ static uint8_t packet_queue_pop(proto_packet_t *pkt)
     return 1;
 }
 
+static void frame_error_nack(uint8_t code)
+{
+    frame_error_nack_pending = code;
+}
+
 static void parser_feed(uint8_t b)
 {
     uint32_t now = systick_ms;
+    uint8_t  just_timed_out = 0;
 
     /* Interbyte timeout (10 ms) — reset parser if too long since last byte */
     if (p_state != PS_WAIT_STX) {
-        if ((now - p_last_byte_ts) > UART_INTERBYTE_TIMEOUT_MS)
+        if ((now - p_last_byte_ts) > UART_INTERBYTE_TIMEOUT_MS) {
+            frame_error_nack(NACK_ERR_TIMEOUT);
             p_state = PS_WAIT_STX;
+            just_timed_out = 1;
+        }
     }
     p_last_byte_ts = now;
 
@@ -165,6 +176,11 @@ static void parser_feed(uint8_t b)
         if (b == PROTO_STX) {
             p_state    = PS_READ_CMD;
             p_data_cnt = 0;
+        } else if (!just_timed_out) {
+            /* Byte that just reset the parser via interbyte timeout is
+             * already accounted for by NACK_ERR_TIMEOUT above; don't
+             * also report it as unrelated garbage. */
+            frame_error_nack(NACK_ERR_GARBAGE);
         }
         break;
 
@@ -178,6 +194,7 @@ static void parser_feed(uint8_t b)
         if (p_rx_pkt.len == 0)
             p_state = PS_READ_CRC;
         else if (p_rx_pkt.len > PROTO_MAX_DATA) {
+            frame_error_nack(NACK_ERR_FRAMING);
             p_state = PS_WAIT_STX;
             p_last_byte_ts = 0;
         } else
@@ -206,9 +223,22 @@ static void parser_feed(uint8_t b)
 
             if (crc_calc == p_crc_rx)
                 (void)packet_queue_push(&p_rx_pkt);
+            else
+                frame_error_nack(NACK_ERR_CRC);
+            p_state = PS_WAIT_STX;
+            p_last_byte_ts = 0;
+        } else if (b == PROTO_STX) {
+            /* Bad terminator that happens to be STX: start the next frame
+             * with this byte instead of discarding it and waiting for
+             * another STX. */
+            frame_error_nack(NACK_ERR_FRAMING);
+            p_state    = PS_READ_CMD;
+            p_data_cnt = 0;
+        } else {
+            frame_error_nack(NACK_ERR_FRAMING);
+            p_state = PS_WAIT_STX;
+            p_last_byte_ts = 0;
         }
-        p_state = PS_WAIT_STX;
-        p_last_byte_ts = 0;
         break;
     }
 }
@@ -285,12 +315,6 @@ static void handle_get_status(void)
         buf[pos++] = (uint8_t)((uint16_t)c & 0xFF);
         buf[pos++] = (uint8_t)((uint16_t)c >> 8);
     }
-    /* 2 temperatures (int16 LE) */
-    for (uint8_t i = 0; i < 2; i++) {
-        int16_t t = adc_get_temp(i);
-        buf[pos++] = (uint8_t)((uint16_t)t & 0xFF);
-        buf[pos++] = (uint8_t)((uint16_t)t >> 8);
-    }
     /* state (uint8) */
     buf[pos++] = power_get_state();
     /* fault_flags (uint16 LE) */
@@ -299,23 +323,6 @@ static void handle_get_status(void)
     buf[pos++] = (uint8_t)(ff >> 8);
     /* inputs (uint8) */
     buf[pos++] = input_get_packed();
-    /* display sequencer state (uint8), see power_get_dseq_raw() */
-    buf[pos++] = power_get_dseq_raw();
-    /* last POWER_CTRL request low bytes (domain bits 0..6) */
-    buf[pos++] = power_get_last_power_ctrl_mask_lo();
-    buf[pos++] = power_get_last_power_ctrl_value_lo();
-    /* reset flags (uint32 LE): raw RCC->CSR snapshot captured at boot */
-    uint32_t rf = power_get_reset_flags_raw();
-    buf[pos++] = (uint8_t)(rf & 0xFF);
-    buf[pos++] = (uint8_t)((rf >> 8) & 0xFF);
-    buf[pos++] = (uint8_t)((rf >> 16) & 0xFF);
-    buf[pos++] = (uint8_t)((rf >> 24) & 0xFF);
-    /* boot counter (uint32 LE): retained in .noinit across resets */
-    uint32_t bc = power_get_boot_counter();
-    buf[pos++] = (uint8_t)(bc & 0xFF);
-    buf[pos++] = (uint8_t)((bc >> 8) & 0xFF);
-    buf[pos++] = (uint8_t)((bc >> 16) & 0xFF);
-    buf[pos++] = (uint8_t)((bc >> 24) & 0xFF);
 
     tx_send(CMD_GET_STATUS, buf, GET_STATUS_DATA_LEN);
 }
@@ -470,6 +477,7 @@ void uart_protocol_process(void)
         rx_tail = rx_head;
         p_state = PS_WAIT_STX;
         p_last_byte_ts = 0;
+        frame_error_nack(NACK_ERR_RX_OVERFLOW);
     } else {
         while (rx_tail != rx_head) {
             uint8_t b = rx_ring[rx_tail];
@@ -481,17 +489,26 @@ void uart_protocol_process(void)
     /* Packet timeout (50 ms) — drop half-parsed packet after idle period */
     if (p_state != PS_WAIT_STX) {
         if ((systick_ms - p_last_byte_ts) > UART_PACKET_TIMEOUT_MS) {
+            frame_error_nack(NACK_ERR_TIMEOUT);
             p_state = PS_WAIT_STX;
             p_last_byte_ts = 0;
         }
     }
 
     if (uart_tx_busy()) return;
-    if ((pkt_q_count == 0U) && (pkt_q_overflow_nack_pending != 0U)) {
-        uint8_t ec = 0x02;
-        tx_send(CMD_NACK, &ec, 1);
-        pkt_q_overflow_nack_pending = 0U;
-        return;
+    if (pkt_q_count == 0U) {
+        uint8_t ec = 0U;
+        if (pkt_q_overflow_nack_pending != 0U) {
+            ec = NACK_ERR_QUEUE_OVERFLOW;
+            pkt_q_overflow_nack_pending = 0U;
+        } else if (frame_error_nack_pending != 0U) {
+            ec = frame_error_nack_pending;
+            frame_error_nack_pending = 0U;
+        }
+        if (ec != 0U) {
+            tx_send(CMD_NACK, &ec, 1);
+            return;
+        }
     }
     if (pkt_q_count == 0U) return;
     if (!packet_queue_pop(&p_pkt)) return;
@@ -507,7 +524,7 @@ void uart_protocol_process(void)
     case CMD_BOOTLOADER_ENTER: handle_bootloader_enter(); break;
     case CMD_CALIBRATE_OFFSET: handle_calibrate_offset(); break;
     default: {
-        uint8_t ec = 0x01;
+        uint8_t ec = NACK_ERR_UNKNOWN_CMD;
         tx_send(CMD_NACK, &ec, 1);
         break;
     }
