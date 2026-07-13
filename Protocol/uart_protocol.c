@@ -8,6 +8,7 @@
 #include "fault_manager.h"
 #include "flash_cal.h"
 #include "bootloader.h"
+#include "boot_meta.h"
 #include <limits.h>
 #include <string.h>
 
@@ -327,6 +328,24 @@ static void handle_get_status(void)
     tx_send(CMD_GET_STATUS, buf, GET_STATUS_DATA_LEN);
 }
 
+static void handle_get_version(void)
+{
+    uint8_t buf[GET_VERSION_DATA_LEN];
+    uint16_t ver = FW_VERSION;
+    uint32_t crc = boot_meta_image_crc();
+
+    buf[0] = (uint8_t)(ver & 0xFF);
+    buf[1] = (uint8_t)(ver >> 8);
+    buf[2] = (uint8_t)(crc & 0xFF);
+    buf[3] = (uint8_t)((crc >> 8) & 0xFF);
+    buf[4] = (uint8_t)((crc >> 16) & 0xFF);
+    buf[5] = (uint8_t)(crc >> 24);
+    buf[6] = 0;
+    buf[7] = 0;
+
+    tx_send(CMD_GET_VERSION, buf, GET_VERSION_DATA_LEN);
+}
+
 static void handle_power_ctrl(void)
 {
     if (p_pkt.len != 4) {
@@ -460,6 +479,51 @@ static void handle_calibrate_offset(void)
     uart_send_ack(CMD_CALIBRATE_OFFSET, result);
 }
 
+static uint8_t read_flash_addr_valid(uint32_t addr, uint8_t len)
+{
+    uintptr_t start = (uintptr_t)addr;
+    uintptr_t end_excl;
+
+    if (len == 0U || len > READ_FLASH_MAX_LEN)
+        return 0;
+
+    if (start < (uintptr_t)FLASH_CAL_VALID_START)
+        return 0;
+
+    if ((uintptr_t)-1 - start < len)
+        return 0;
+
+    end_excl = start + len;
+    if (end_excl > (uintptr_t)FLASH_CAL_VALID_END)
+        return 0;
+
+    return 1;
+}
+
+static void handle_read_flash(void)
+{
+    if (p_pkt.len != 5) {
+        uart_send_ack(CMD_READ_FLASH, 1);
+        return;
+    }
+
+    uint32_t addr = (uint32_t)p_pkt.data[0]
+                  | ((uint32_t)p_pkt.data[1] << 8)
+                  | ((uint32_t)p_pkt.data[2] << 16)
+                  | ((uint32_t)p_pkt.data[3] << 24);
+    uint8_t len = p_pkt.data[4];
+
+    if (!read_flash_addr_valid(addr, len)) {
+        uart_send_ack(CMD_READ_FLASH, 1);
+        return;
+    }
+
+    uint8_t buf[1U + READ_FLASH_MAX_LEN];
+    buf[0] = 0;
+    memcpy(&buf[1], (const void *)(uintptr_t)addr, len);
+    tx_send(CMD_READ_FLASH, buf, (uint8_t)(1U + len));
+}
+
 /* ===== Main-loop process ===== */
 void uart_protocol_process(void)
 {
@@ -523,6 +587,8 @@ void uart_protocol_process(void)
     case CMD_SET_THRESHOLDS:   handle_set_thresholds();   break;
     case CMD_BOOTLOADER_ENTER: handle_bootloader_enter(); break;
     case CMD_CALIBRATE_OFFSET: handle_calibrate_offset(); break;
+    case CMD_GET_VERSION:      handle_get_version();      break;
+    case CMD_READ_FLASH:       handle_read_flash();       break;
     default: {
         uint8_t ec = NACK_ERR_UNKNOWN_CMD;
         tx_send(CMD_NACK, &ec, 1);

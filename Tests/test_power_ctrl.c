@@ -167,6 +167,17 @@ void test_display_cmd_rejected_when_sequencer_busy(void)
     TEST_ASSERT_EQUAL_INT(DSEQ_UP_WAIT_SCALER, dseq);
 }
 
+void test_scaler_off_preempts_up_sequence_when_busy(void)
+{
+    dseq = DSEQ_UP_WAIT_SCALER;
+    power_state = (uint8_t)(DOM_SCALER | DOM_LCD | ALWAYS_ON_ETH);
+
+    uint8_t r = power_ctrl_request(DOM_SCALER | DOM_LCD, 0);
+
+    TEST_ASSERT_EQUAL_UINT8(0, r);
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
+}
+
 void test_audio_cmd_rejected_when_aseq_busy(void)
 {
     aseq = ASEQ_ON_POWER;
@@ -390,6 +401,7 @@ int main(void)
     RUN_TEST(test_lcd_on_rejected_without_scaler);
     RUN_TEST(test_lcd_on_accepted_with_scaler);
     RUN_TEST(test_display_cmd_rejected_when_sequencer_busy);
+    RUN_TEST(test_scaler_off_preempts_up_sequence_when_busy);
     RUN_TEST(test_audio_cmd_rejected_when_aseq_busy);
     RUN_TEST(test_eth1_request_is_ignored_but_state_stays_on);
     RUN_TEST(test_eth2_off_request_is_ignored_and_state_stays_on);

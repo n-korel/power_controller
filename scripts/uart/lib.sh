@@ -263,6 +263,53 @@ cmd_get_status() {
   return 1
 }
 
+cmd_get_version() {
+  local attempt hex
+  for attempt in 1 2 3; do
+    uart_drain_fd
+    uart_tx_frame 0x0A
+    sleep 0.15
+    if hex="$(uart_rx "$GET_VERSION_FRAME_LEN" "$ACK_TIMEOUT_SEC" 2>/dev/null)" \
+      && validate_get_version_hex "$hex" \
+      && validate_frame_crc "$hex"; then
+      printf '%s' "$hex"
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+read_flash_frame_len() {
+  local data_len=$1
+  echo $((6 + data_len))
+}
+
+cmd_read_flash_block() {
+  local addr_hex=$1 len=$2
+  local addr=$((addr_hex))
+  local al=$((addr & 0xff))
+  local ah=$(((addr >> 8) & 0xff))
+  local am=$(((addr >> 16) & 0xff))
+  local an=$(((addr >> 24) & 0xff))
+  local frame_len
+  frame_len="$(read_flash_frame_len "$len")"
+  local attempt hex
+  for attempt in 1 2 3; do
+    uart_drain_fd
+    uart_tx_frame 0x0B "$al" "$ah" "$am" "$an" "$len"
+    sleep 0.15
+    if hex="$(uart_rx "$frame_len" "$ACK_TIMEOUT_SEC" 2>/dev/null)" \
+      && validate_read_flash_hex "$hex" "$len" \
+      && validate_frame_crc "$hex"; then
+      printf '%s' "$hex"
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 cmd_reset_fault() {
   uart_drain_fd
   uart_tx_frame 0x05
@@ -282,6 +329,13 @@ cmd_calibrate_offset() {
   uart_tx_frame 0x09
   sleep 0.05
   uart_rx "$ACK_FRAME_LEN" "${CALIBRATE_OFFSET_TIMEOUT_SEC:-3.0}"
+}
+
+cmd_bootloader_enter() {
+  uart_drain_fd
+  uart_tx_frame 0x08
+  sleep 0.15
+  uart_rx "$ACK_FRAME_LEN" "$ACK_TIMEOUT_SEC"
 }
 
 cmd_power_ctrl() {
@@ -491,6 +545,40 @@ sys.exit(0 if ok else 1)
 PY
 }
 
+validate_get_version_hex() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
+ok = (
+    len(raw) == 13
+    and raw[0] == 0x02
+    and raw[1] == 0x0A
+    and raw[2] == 0x08
+    and raw[-1] == 0x03
+)
+sys.exit(0 if ok else 1)
+PY
+}
+
+validate_read_flash_hex() {
+  local hex=$1 expected_len=$2
+  python3 - "$hex" "$expected_len" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
+expected_len = int(sys.argv[2])
+expected_data_len = 1 + expected_len
+ok = (
+    len(raw) == 6 + expected_len
+    and raw[0] == 0x02
+    and raw[1] == 0x0B
+    and raw[2] == expected_data_len
+    and raw[-1] == 0x03
+)
+sys.exit(0 if ok else 1)
+PY
+}
+
 # CRC-8/ATM по [CMD][LEN][DATA] — как uart_protocol.c
 validate_frame_crc() {
   local hex=$1
@@ -563,6 +651,90 @@ print(f'pgood={(inputs >> 6) & 1}')
 PY
 }
 
+# Парсинг GET_VERSION (8 байт DATA) — вывод key=value
+parse_get_version_hex() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import struct, sys
+h = sys.argv[1].replace(' ', '').strip().lower()
+raw = bytes.fromhex(h)
+if len(raw) != 13:
+    print(f'error=bad_frame_len len={len(raw)} expected=13', file=sys.stderr)
+    sys.exit(2)
+if raw[0] != 0x02 or raw[1] != 0x0A or raw[2] != 0x08 or raw[-1] != 0x03:
+    print('error=bad_header_or_etx', file=sys.stderr)
+    sys.exit(2)
+data = raw[3:11]
+fw_version = struct.unpack_from('<H', data, 0)[0]
+firmware_crc = struct.unpack_from('<I', data, 2)[0]
+reserved = struct.unpack_from('<H', data, 6)[0]
+major = (fw_version >> 8) & 0xFF
+minor = fw_version & 0xFF
+print(f'fw_version=0x{fw_version:04x}')
+print(f'fw_major={major}')
+print(f'fw_minor={minor}')
+print(f'firmware_crc=0x{firmware_crc:08x}')
+print(f'reserved=0x{reserved:04x}')
+PY
+}
+
+parse_read_flash_hex() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', '').strip().lower())
+if len(raw) < 6 or raw[0] != 0x02 or raw[1] != 0x0B or raw[-1] != 0x03:
+    print('error=bad_frame', file=sys.stderr)
+    sys.exit(2)
+data_len = raw[2]
+data = raw[3:3 + data_len]
+if len(data) != data_len:
+    print('error=bad_data_len', file=sys.stderr)
+    sys.exit(2)
+status = data[0]
+payload = data[1:]
+print(f'status=0x{status:02x}')
+print(f'data_len={len(payload)}')
+print('data=' + payload.hex())
+PY
+}
+
+expect_read_flash_ok() {
+  local hex=$1 expected_len=$2
+  python3 - "$hex" "$expected_len" <<'PY'
+import sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', '').strip().lower())
+expected_len = int(sys.argv[2])
+if len(raw) != 6 + expected_len or raw[0] != 0x02 or raw[1] != 0x0B or raw[-1] != 0x03:
+    sys.exit(1)
+data_len = raw[2]
+if data_len != 1 + expected_len:
+    sys.exit(1)
+data = raw[3:3 + data_len]
+sys.exit(0 if data[0] == 0 and len(data) == 1 + expected_len else 1)
+PY
+}
+
+expect_get_version() {
+  local hex=$1
+  local major="${FW_VERSION_MAJOR_EXPECT:-1}"
+  local minor="${FW_VERSION_MINOR_EXPECT:-0}"
+  python3 - "$hex" "$major" "$minor" <<'PY'
+import struct, sys
+raw = bytes.fromhex(sys.argv[1].replace(' ', '').strip().lower())
+major = int(sys.argv[2])
+minor = int(sys.argv[3])
+expected = (major << 8) | minor
+if len(raw) != 13 or raw[0] != 0x02 or raw[1] != 0x0A or raw[2] != 0x08 or raw[-1] != 0x03:
+    sys.exit(1)
+data = raw[3:11]
+fw_version = struct.unpack_from('<H', data, 0)[0]
+reserved = struct.unpack_from('<H', data, 6)[0]
+ok = fw_version == expected and reserved == 0
+sys.exit(0 if ok else 1)
+PY
+}
+
 expect_ack_status() {
   local hex=$1 expected=$2
   local got
@@ -584,6 +756,23 @@ expect_ping_aa() {
 import sys
 b = bytes.fromhex(sys.argv[1].replace(' ',''))
 ok = len(b) >= 6 and b[0]==2 and b[1]==1 and b[3]==0xAA
+sys.exit(0 if ok else 1)
+PY
+}
+
+expect_bootloader_enter_ack() {
+  local hex=$1
+  python3 - "$hex" <<'PY'
+import sys
+b = bytes.fromhex(sys.argv[1].replace(' ', ''))
+ok = (
+    len(b) == 6
+    and b[0] == 0x02
+    and b[1] == 0x08
+    and b[2] == 0x01
+    and b[3] == 0x00
+    and b[5] == 0x03
+)
 sys.exit(0 if ok else 1)
 PY
 }

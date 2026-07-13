@@ -27,6 +27,7 @@ static uint8_t  mock_power_reset_bridge_result;
 static uint8_t  mock_power_safe_state_called;
 static uint8_t  mock_bootloader_schedule_called;
 static uint8_t  mock_flash_cal_calibrate_result;
+static uint32_t mock_firmware_crc;
 static struct {
     uint16_t min_val;
     uint16_t max_val;
@@ -73,6 +74,7 @@ void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
 void     power_safe_state(void)          { mock_power_safe_state_called = 1; }
 void     bootloader_schedule(void)       { mock_bootloader_schedule_called = 1; }
 uint8_t  flash_cal_calibrate(void)       { return mock_flash_cal_calibrate_result; }
+uint32_t boot_meta_image_crc(void)       { return mock_firmware_crc; }
 uint16_t adc_get_raw_avg(uint8_t idx)    { (void)idx; return 0; }
 
 volatile uint32_t systick_ms;
@@ -519,6 +521,28 @@ void test_dispatch_get_status_layout_22_bytes(void)
     TEST_ASSERT_EQUAL_HEX8(0xA5, d[21]);
 
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[3 + GET_STATUS_DATA_LEN + 1]);
+}
+
+void test_dispatch_get_version_layout_8_bytes(void)
+{
+    mock_firmware_crc = 0xAABBCCDDU;
+
+    uint8_t pkt[8];
+    uint16_t n = build_packet(pkt, CMD_GET_VERSION, NULL, 0);
+    feed_bytes(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_HEX8(PROTO_STX, tx_buf[0]);
+    TEST_ASSERT_EQUAL_HEX8(CMD_GET_VERSION, tx_buf[1]);
+    TEST_ASSERT_EQUAL_UINT8(GET_VERSION_DATA_LEN, tx_buf[2]);
+
+    const uint8_t *d = &tx_buf[3];
+    TEST_ASSERT_EQUAL_HEX16(FW_VERSION, (uint16_t)d[0] | ((uint16_t)d[1] << 8));
+    TEST_ASSERT_EQUAL_HEX32(0xAABBCCDDU,
+        (uint32_t)d[2] | ((uint32_t)d[3] << 8) |
+        ((uint32_t)d[4] << 16) | ((uint32_t)d[5] << 24));
+    TEST_ASSERT_EQUAL_HEX16(0, (uint16_t)d[6] | ((uint16_t)d[7] << 8));
+    TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[3 + GET_VERSION_DATA_LEN + 1]);
 }
 
 void test_dispatch_power_ctrl_bad_len_nack(void)
@@ -1071,6 +1095,7 @@ int main(void)
     RUN_TEST(test_hal_uart_dispatch_ping_calls_single_transmit_with_len6);
     RUN_TEST(test_dispatch_unknown_cmd_nack);
     RUN_TEST(test_dispatch_get_status_layout_22_bytes);
+    RUN_TEST(test_dispatch_get_version_layout_8_bytes);
     RUN_TEST(test_dispatch_power_ctrl_bad_len_nack);
     RUN_TEST(test_dispatch_power_ctrl_rejects_unknown_bits_in_mask_or_value);
     RUN_TEST(test_dispatch_set_brightness_over_1000_rejected);

@@ -79,6 +79,18 @@ void test_get_status_data_len_is_22(void)
     TEST_ASSERT_EQUAL_UINT(22, GET_STATUS_DATA_LEN);
 }
 
+void test_get_version_data_len_is_8(void)
+{
+    TEST_ASSERT_EQUAL_UINT(8, GET_VERSION_DATA_LEN);
+}
+
+void test_fw_version_default_is_1_1(void)
+{
+    TEST_ASSERT_EQUAL_UINT(1U, FW_VERSION_MAJOR);
+    TEST_ASSERT_EQUAL_UINT(1U, FW_VERSION_MINOR);
+    TEST_ASSERT_EQUAL_HEX16(0x0101, FW_VERSION);
+}
+
 void test_ping_response_is_0xAA(void)
 {
     TEST_ASSERT_EQUAL_HEX8(0xAA, PING_RESPONSE);
@@ -95,6 +107,8 @@ void test_cmd_reset_bridge(void)     { TEST_ASSERT_EQUAL_HEX8(0x06, CMD_RESET_BR
 void test_cmd_set_thresholds(void)   { TEST_ASSERT_EQUAL_HEX8(0x07, CMD_SET_THRESHOLDS); }
 void test_cmd_bootloader_enter(void) { TEST_ASSERT_EQUAL_HEX8(0x08, CMD_BOOTLOADER_ENTER); }
 void test_cmd_calibrate_offset(void) { TEST_ASSERT_EQUAL_HEX8(0x09, CMD_CALIBRATE_OFFSET); }
+void test_cmd_get_version(void)    { TEST_ASSERT_EQUAL_HEX8(0x0A, CMD_GET_VERSION); }
+void test_cmd_read_flash(void)     { TEST_ASSERT_EQUAL_HEX8(0x0B, CMD_READ_FLASH); }
 void test_cmd_nack(void)             { TEST_ASSERT_EQUAL_HEX8(0xFF, CMD_NACK); }
 
 /* ===== Domain bitmask (Rules 4.5) ===== */
@@ -165,6 +179,11 @@ void test_rom_bootloader_address(void)
 void test_flash_cal_address(void)
 {
     TEST_ASSERT_EQUAL_HEX32(0x0800FC00, FLASH_CAL_ADDR);
+}
+
+void test_boot_meta_address(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x0800F800, BOOT_META_ADDR);
 }
 
 void test_flash_cal_magic(void)
@@ -306,6 +325,8 @@ int main(void)
     RUN_TEST(test_proto_stx_is_0x02);
     RUN_TEST(test_proto_etx_is_0x03);
     RUN_TEST(test_get_status_data_len_is_22);
+    RUN_TEST(test_get_version_data_len_is_8);
+    RUN_TEST(test_fw_version_default_is_1_1);
     RUN_TEST(test_ping_response_is_0xAA);
     /* Commands */
     RUN_TEST(test_cmd_ping);
@@ -317,6 +338,8 @@ int main(void)
     RUN_TEST(test_cmd_set_thresholds);
     RUN_TEST(test_cmd_bootloader_enter);
     RUN_TEST(test_cmd_calibrate_offset);
+    RUN_TEST(test_cmd_get_version);
+    RUN_TEST(test_cmd_read_flash);
     RUN_TEST(test_cmd_nack);
     /* Domains */
     RUN_TEST(test_domain_bits);
@@ -328,6 +351,7 @@ int main(void)
     RUN_TEST(test_rom_bootloader_address);
     /* Flash cal */
     RUN_TEST(test_flash_cal_address);
+    RUN_TEST(test_boot_meta_address);
     RUN_TEST(test_flash_cal_magic);
     /* Timings */
     RUN_TEST(test_sequencing_timing_values);

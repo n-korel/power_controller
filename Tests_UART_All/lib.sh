@@ -123,10 +123,35 @@ periph_display_all_off() {
 
 # Все домены (включая TOUCH/AUDIO после auto-startup при PGOOD)
 periph_all_domains_off() {
-  local hex gs
+  local hex gs attempt ack_status tries
+  tries="${PERIPH_ALL_OFF_TRIES:-12}"
   log_info "all domains off: mask=0x007F value=0"
-  hex="$(cmd_power_ctrl 0x007f 0x0000)" || return 1
-  expect_ack_status "$hex" 0 || return 1
+  for ((attempt = 1; attempt <= tries; attempt++)); do
+    uart_drain_fd
+    hex="$(cmd_power_ctrl 0x007f 0x0000 2>/dev/null || true)"
+    if [[ -z "$hex" ]]; then
+      [[ "$attempt" -eq "$tries" ]] && log_fail "all domains off: no POWER_CTRL ACK"
+      sleep 0.2
+      continue
+    fi
+    ack_status="$(python3 - "$hex" <<'PY'
+import sys
+b = bytes.fromhex(sys.argv[1].replace(" ", ""))
+print(b[3] if len(b) >= 4 else 255)
+PY
+)"
+    if [[ "$ack_status" != "0" ]]; then
+      if [[ "$attempt" -eq "$tries" ]]; then
+        gs="$(cmd_get_status 2>/dev/null || true)"
+        [[ -n "$gs" ]] && periph_log_status "$gs" "POWER_CTRL status=${ack_status}"
+        log_fail "all domains off: POWER_CTRL status=${ack_status} (policy reject; check GET_STATUS above)"
+        return 1
+      fi
+      sleep 0.25
+      continue
+    fi
+    break
+  done
   sleep "${SEQ_DN_WAIT_SEC:-1.0}"
   if ! gs="$(wait_get_status_clean "${STATE_POLL_TRIES:-40}")"; then
     log_fail "all domains off: timeout waiting state=0x30 fault=0"

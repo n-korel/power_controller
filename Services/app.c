@@ -12,11 +12,13 @@
 #include "fault_manager.h"
 #include "flash_cal.h"
 #include "bootloader.h"
+#include "boot_meta.h"
 #include "config.h"
 
 void app_init(void)
 {
     power_safe_state();
+    boot_meta_on_startup();
 
     adc_service_init();
     input_service_init();
@@ -39,6 +41,8 @@ void app_init(void)
     }
 
     uart_protocol_init();
+
+    (void)boot_meta_confirm();
 
     power_startup_begin();
 }

@@ -52,6 +52,8 @@ void input_service_init(void) {}
 void power_manager_init(void) {}
 void fault_manager_init(void) {}
 void flash_cal_load(void) {}
+void boot_meta_on_startup(void) {}
+uint8_t boot_meta_confirm(void) { return 0; }
 void uart_protocol_init(void) {}
 void power_startup_begin(void) {}
 void fault_set_flag(uint16_t flag) { (void)flag; }

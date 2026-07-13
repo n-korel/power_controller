@@ -55,6 +55,7 @@ Services/input_service.c \
 Services/power_manager.c \
 Services/fault_manager.c \
 Services/flash_cal.c \
+Services/boot_meta.c \
 Services/bootloader.c \
 Protocol/uart_protocol.c \
 Drivers/STM32F0xx_HAL_Driver/Src/stm32f0xx_hal_adc.c \
@@ -203,11 +204,11 @@ $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
-$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	$(HEX) $< $@
-	
 $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	$(BIN) $< $@	
+	$(BIN) $< $@
+
+$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.bin $(BUILD_DIR)/%.elf | $(BUILD_DIR)
+	python3 scripts/fw_sign.py $(BUILD_DIR) $(TARGET)
 	
 $(BUILD_DIR):
 	mkdir $@		
@@ -219,7 +220,7 @@ $(BUILD_DIR):
 ST_FLASH ?= st-flash
 
 .PHONY: flash-stlink
-flash-stlink: $(BUILD_DIR)/$(TARGET).bin
+flash-stlink: $(BUILD_DIR)/$(TARGET).hex
 	$(ST_FLASH) --connect-under-reset write $(BUILD_DIR)/$(TARGET).bin 0x08000000
 
 #######################################
@@ -260,6 +261,7 @@ LINT_USER_SRCS = \
   Services/power_manager.c \
   Services/fault_manager.c \
   Services/flash_cal.c \
+  Services/boot_meta.c \
   Services/bootloader.c \
   Protocol/uart_protocol.c
 
@@ -474,6 +476,25 @@ bl-preset-mid:
 
 bl-preset-max:
 	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh preset max
+
+#######################################
+# OTA (scripts/uart/ota_flash.sh, UART0 + stm32flash)
+#   make ota-flash
+#   make ota-flash UART_DEVICE=/dev/ttyACM0
+#   OTA_IC17_RECOVERY_CMD='...' make ota-flash
+#######################################
+
+SCRIPTS_UART = scripts/uart
+
+.PHONY: ota-flash
+
+ota-flash: $(BUILD_DIR)/$(TARGET).hex
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/ota_flash.sh $(BUILD_DIR)/$(TARGET).bin
+
+.PHONY: flash-dump
+
+flash-dump:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/flash_dump.sh $(or $(OUT),backup.bin) --elf $(BUILD_DIR)/$(TARGET).elf
 
 warnings-check:
 	@echo ">>> [warnings-check] arm-none-eabi-gcc strict warnings on user code"
