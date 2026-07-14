@@ -91,6 +91,7 @@ MCU **не шлёт** асинхронных событий на Q7. Актуа�
 | 0x07 | SET_THRESHOLDS   | переменный  | 1                   |
 | 0x08 | BOOTLOADER_ENTER | 0           | 1 (ACK до reset)    |
 | 0x09 | CALIBRATE_OFFSET | 0           | 1                   |
+| 0x0A | GET_VERSION      | 0           | **13**              |
 
 Полные форматы DATA, валидация и исключения — [раздел 9](#9-протокол-uart).
 
@@ -641,6 +642,20 @@ Response:
 
 - `uint8_t status` (0 = OK, 1 = error: домены включены, ошибка flash или невалидный адрес)
 
+#### GET_VERSION (0x0A)
+
+Request: пусто.
+
+Response (`LEN=13`):
+
+| Offset | Поле             | Тип        | Описание |
+| ------ | ---------------- | ---------- | -------- |
+| 0..7   | `git_hash_ascii` | 8× ASCII   | короткий git hash коммита сборки |
+| 8      | `dirty`          | `uint8_t`  | `1` = dirty tree на момент сборки |
+| 9..12  | `build_epoch`    | `uint32_le`| unix-время сборки |
+
+Значения вшиваются Makefile из git (`build/version_gen.h`). Полный дамп flash — только через ROM bootloader ([19.5](#195-bootloader-flow-обновление-прошивки-mcu-из-linuxq7)), не через эту команду.
+
 ---
 
 ## 13. Power Sequencing
@@ -824,10 +839,16 @@ Offset по каналам: `flash_cal_load()` / `CMD_CALIBRATE_OFFSET` (`Servic
 - `FAULT_AUDIO` и `FAULT_AMP_FAULTZ` разделены намеренно: Linux может различать “перегрузку по току” и “внешний fault усилителя”, но оба приводят к защитному действию для аудио.
 - Биты `FAULT_ETH1` / `FAULT_ETH2` / `FAULT_TOUCH` определены в прошивке; мониторинг токов для этих доменов в `GET_STATUS` пока отсутствует — биты зарезервированы под расширение.
 
-### 19.5 Bootloader flow (обновление прошивки MCU из Linux/Q7)
+### 19.5 Bootloader flow (обновление / чтение прошивки MCU из Linux/Q7)
 
 1. `power_safe_state()` → SRAM magic `0xDEADBEEF` → ACK → `NVIC_SystemReset()` → jump в ROM (`ROM_BOOTLOADER_ADDR`, `0x1FFFD800` на APM32F030R8T6) на UART0.  
    Аппаратный резерв через IC17: [1.2](#12-аппаратный-вход-в-rom-bootloader-через-ic17-на-стороне-q7). Сценарий Q7: [обновление прошивки](#обновление-прошивки-mcu).
+
+2. **Запись (OTA):** `stm32flash -w firmware.bin -v -g 0x08000000` (`scripts/uart/ota_flash.sh`, `make ota-flash`).
+
+3. **Чтение (dump):** `stm32flash -r dump.bin -S 0x08000000:65536` (`scripts/uart/ota_dump.sh`, `make ota-dump`). Отдельной команды `READ_FLASH` в прикладном протоколе нет (Rules_POWER.md #53).
+
+4. Идентификация уже запущенного приложения без bootloader: `GET_VERSION (0x0A)` — git hash / dirty / build epoch.
 
 ### 19.6 Последовательность включения/выключения усилителя `TPA3118D2`
 

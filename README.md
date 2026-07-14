@@ -102,8 +102,9 @@ flowchart LR
 ## Старт
 
 1. **PING** `0x01` → в ответе `status = 0xAA` (MCU alive).
-2. **GET_STATUS** `0x04` → `LEN = 22` (`0x16`), разобрать телеметрию.
-3. Проверить после старта: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=ON` (или `0x03` без auto-BL, если `ENABLE_BACKLIGHT_AUTO_STARTUP=0`).
+2. **GET_VERSION** `0x0A` → `LEN = 13`, git hash текущей прошивки (опционально).
+3. **GET_STATUS** `0x04` → `LEN = 22` (`0x16`), разобрать телеметрию.
+4. Проверить после старта: `SCALER=ON`, `LCD=ON`, `BACKLIGHT=ON` (или `0x03` без auto-BL, если `ENABLE_BACKLIGHT_AUTO_STARTUP=0`).
 
 ### Рекомендуемый цикл опроса
 
@@ -161,8 +162,7 @@ flowchart LR
 | 0x07 | SET_THRESHOLDS   | переменный  | 1                |
 | 0x08 | BOOTLOADER_ENTER | 0           | 1 (ACK до reset) |
 | 0x09 | CALIBRATE_OFFSET | 0           | 1                |
-| 0x0A | GET_VERSION      | 0           | **8**            |
-| 0x0B | READ_FLASH       | 5           | **1…64** (`status` + data) |
+| 0x0A | GET_VERSION      | 0           | **13**           |
 
 ### POWER_CTRL (0x02)
 
@@ -190,42 +190,15 @@ flowchart LR
 
 `CALIBRATE_OFFSET`: при **нулевой** нагрузке и **выключенных управляемых доменах** (`GET_STATUS.state == 0x30`, только `ETH1|ETH2`) сохранить offset во flash MCU. Перед командой: при fault — `RESET_FAULT`, затем выключить все домены кроме always-on ETH. При любых других битах в `state` — `status=0x01`, flash не пишется.
 
-`GET_VERSION`: версия прошивки и CRC32 образа (тот же CRC, что используется OTA/boot_meta). Версия задаётся в `Config/config.h` (`FW_VERSION_MAJOR` / `FW_VERSION_MINOR`).
+`GET_VERSION`: ответ **строго 13 байт** DATA — git-версия, вшитая при сборке (без входа в bootloader).
 
-`READ_FLASH`: чтение блока flash MCU по адресу (бэкап прошивки без входа в ROM-bootloader). Запрос: `addr:uint32_le` + `len:uint8` (1…63). Ответ: `status` (`0x00` = OK) + до `len` байт данных. Допустимый диапазон адресов: `0x08000000` … `0x08010000` (конец исключительный). Хост-инструмент: `make flash-dump`.
+| Offset | Поле             | Тип     | Описание |
+| :----- | :--------------- | :------ | :------- |
+| 0      | `git_hash_ascii` | 8 bytes | короткий git hash (ASCII, 8 символов) |
+| 8      | `dirty`          | uint8   | `1` = незакоммиченные изменения на момент сборки |
+| 9      | `build_epoch`    | uint32  | unix-время сборки (LE) |
 
----
-
-## GET_VERSION
-
-Ответ: **8 байт** DATA (`LEN=0x08`, полный кадр 13 байт).
-
-| Offset | Поле          | Тип    | Описание                                      |
-| :----- | :------------ | :----- | :-------------------------------------------- |
-| 0      | `fw_version`  | uint16 | `major<<8 \| minor` (по умолчанию `0x0101` = v1.1) |
-| 2      | `firmware_crc`| uint32 | CRC32 образа (патчится `scripts/fw_sign.py`)  |
-| 6      | `reserved`    | uint16 | `0x0000`                                      |
-
-Пример запроса: `02 0A 00 82 03`
-
----
-
-## READ_FLASH
-
-Запрос: **5 байт** DATA (`LEN=0x05`): `addr:uint32_le` (offset 0) + `len:uint8` (offset 4, 1…63).
-
-Ответ (успех): `status=0x00` + `len` байт данных (`LEN = 1 + len`, полный кадр `6 + len` байт).
-
-Ответ (ошибка): `status=0x01`, `LEN=0x01`, данных нет.
-
-Диапазон: `addr >= 0x08000000`, `addr + len <= 0x08010000` (конец исключительный, как `FLASH_CAL_VALID_*` в `config.h`).
-
-Пример: прочитать 16 байт с начала flash (`0x08000000`):
-
-- Запрос: `02 0B 05 00 00 00 08 10 D9 03` (`addr=0x08000000`, `len=0x10`)
-- Ответ: `02 0B 11 00 <16 data bytes> <CRC> 03`
-
-Бэкап образа на Q7: `make flash-dump OUT=backup.bin` (чанки по 63 байта, опциональная сверка CRC32 с `GET_VERSION`).
+Полный дамп flash по UART — **не** через эту команду: `BOOTLOADER_ENTER` → ROM bootloader → `stm32flash -r` (см. [OTA / dump](#чтение-flash-через-rom-bootloader)).
 
 ---
 
@@ -362,20 +335,7 @@ MCU также управляет (без отдельных UART-полей): P
 | 2. Прошивка | Q7 → ROM bootloader | STM32 USART bootloader (`stm32flash`) | `.bin` записан во flash       |
 | 3. Старт    | MCU                 | —                                     | новая прошивка с `0x08000000` |
 
-**Параметры:** UART0, **115200 8N1**, без flow control. Flash MCU — **64 КБ**, база **`0x08000000`**. Образ: `build/POWER_Controller.bin` (после `make all` — с CRC-футером, см. ниже).
-
-**Бэкап перед OTA:** `make flash-dump OUT=backup.bin` читает flash через прикладной протокол (`READ_FLASH`), без входа в ROM-bootloader. Альтернатива — `stm32flash -r` после `BOOTLOADER_ENTER` или аппаратного BOOT0.
-
-**Сборка:** `make all` собирает `.elf`, затем `scripts/fw_sign.py` патчит CRC32-футер в `.bin` и пересобирает `.hex`. Для OTA и `make ota-flash` нужен именно этот подписанный `.bin`; сырой вывод `objcopy` без `fw_sign` не пройдёт `boot_meta_confirm()` на устройстве.
-
-**Разметка flash (хвост, 2 КБ зарезервировано линкером):**
-
-| Адрес        | Размер | Назначение                          |
-| ------------ | ------ | ----------------------------------- |
-| `0x0800F800` | 1 КБ   | Boot metadata (`boot_meta_t`)       |
-| `0x0800FC00` | 1 КБ   | Калибровка токов (`flash_cal_t`)    |
-
-Приложение линкуется в первые **62 КБ** (`STM32F030XX_FLASH.ld`); переполнение — ошибка линковки, а не тихая перезапись метаданных.
+**Параметры:** UART0, **115200 8N1**, без flow control. Flash MCU — **64 КБ**, база **`0x08000000`**. Образ: `build/POWER_Controller.bin` (после `make`).
 
 ```mermaid
 sequenceDiagram
@@ -410,18 +370,6 @@ sequenceDiagram
 | STM32F030x8             | `0x1FFFEC00`          |
 
 После jump прикладной протокол `[STX]…[ETX]` **не работает** — активен ROM USART-bootloader.
-
-### Авто-восстановление после неудачного OTA (`boot_meta`)
-
-Альтернатива полноценному A/B dual-bank на 64 КБ flash: метаданные в странице `0x0800F800` + CRC32 образа (футер `.fw_crc`, патчится `fw_sign.py`).
-
-| Этап | Поведение |
-| ---- | --------- |
-| После OTA | `boot_meta_on_startup()` видит неподтверждённый образ или смену `firmware_crc` → уменьшает `boot_attempts` (стартовое значение 3) |
-| Успешный self-test | `boot_meta_confirm()` после ADC DMA + TIM17 PWM → `confirmed=1`, запись CRC |
-| 3 ресета без confirm | `bootloader_schedule()` → уход в ROM-bootloader для перезаливки с Q7 |
-
-Ручной `BOOTLOADER_ENTER` по-прежнему работает. Авто-вход в ROM-bootloader дополняет его, когда прошивка зависла до ответа на UART.
 
 ### Ручной сценарий (пошагово)
 
@@ -481,3 +429,21 @@ stm32flash -b 115200 \
 В idle резистор R119 тянет `BOOT0` к GND — MCU стартует из flash приложения.
 
 В OTA-скрипте этот путь подключается через `OTA_IC17_RECOVERY_CMD` — Q7-скрипт управления IC17 в репозитории пока не включён, задаётся снаружи.
+
+### Чтение flash через ROM bootloader
+
+Полный образ прошивки из flash MCU читается **тем же** handoff, что и OTA, но через `stm32flash -r` (отдельной команды прикладного протокола нет):
+
+```bash
+# make ota-dump OUT=flash_dump.bin
+# или:
+UART_DEVICE=/dev/ttyUSB0 ./scripts/uart/ota_dump.sh flash_dump.bin
+```
+
+Последовательность:
+
+1. `BOOTLOADER_ENTER (0x08)` → ACK → reset → ROM bootloader на UART0
+2. `stm32flash -r <out.bin> -S 0x08000000:65536` (64 КБ)
+3. После дампа MCU нужно вернуть в приложение (`-g 0x08000000` или аппаратный reset / IC17). Скрипт `ota_dump.sh` делает go после чтения.
+
+Перед OTA Q7 может сравнить `GET_VERSION` удалённой прошивки с ожидаемым git hash образа — без входа в bootloader.

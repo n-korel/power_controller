@@ -361,7 +361,7 @@ static void dseq_process(void)
      * Shutdown of the display rails is driven through the fault policy:
      * fault_set_flag(FAULT_PGOOD_LOST) -> power_force_off_domains(ALL)
      * already calls power_emergency_display_off() internally. */
-    if (dseq != DSEQ_IDLE && dseq < DSEQ_DN_PWM_ZERO && dseq != DSEQ_UP_DONE) {
+    if (dseq != DSEQ_IDLE && dseq < DSEQ_DN_PWM_ZERO) {
         uint8_t in_bl_grace = bl_gpio_on_applied &&
                               (bl_gpio_on_ts != BL_GPIO_ON_TS_UNSET) &&
                               ((now - bl_gpio_on_ts) < SEQ_BL_PGOOD_GRACE_MS);
@@ -835,14 +835,13 @@ uint8_t power_ctrl_request(uint16_t mask, uint16_t value)
         uint8_t want_bl_off     = (mask & DOM_BACKLIGHT) && !(value & DOM_BACKLIGHT);
         uint8_t want_bl_on      = (mask & DOM_BACKLIGHT) && (value & DOM_BACKLIGHT);
 
-        if (want_scaler_off || want_lcd_off) {
-            /* Host SCALER/LCD OFF preempts in-flight UP; idempotent while DN runs. */
-            if (dseq < DSEQ_DN_PWM_ZERO) {
-                next_dseq = DSEQ_DN_PWM_ZERO;
-                apply_dseq = 1;
-            }
-        } else if (dseq != DSEQ_IDLE) {
+        if (dseq != DSEQ_IDLE)
             return 1;
+
+        if (want_scaler_off || want_lcd_off) {
+            /* Turning off SCALER or LCD: full shutdown sequencing first */
+            next_dseq = DSEQ_DN_PWM_ZERO;
+            apply_dseq = 1;
         } else if (want_bl_off && (req_state & DOM_BACKLIGHT)) {
             /* BL-only off with 10ms delay (Rules 13.7) */
             next_dseq = DSEQ_BLOFF_PWM_ZERO;

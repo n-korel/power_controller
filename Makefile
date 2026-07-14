@@ -55,7 +55,6 @@ Services/input_service.c \
 Services/power_manager.c \
 Services/fault_manager.c \
 Services/flash_cal.c \
-Services/boot_meta.c \
 Services/bootloader.c \
 Protocol/uart_protocol.c \
 Drivers/STM32F0xx_HAL_Driver/Src/stm32f0xx_hal_adc.c \
@@ -140,7 +139,10 @@ C_DEFS =  \
 AS_INCLUDES = 
 
 # C includes
+# $(BUILD_DIR) precedes Config so firmware builds pick up generated
+# build/version_gen.h over Config/version_gen.h fallback stubs.
 C_INCLUDES =  \
+-I$(BUILD_DIR) \
 -ICore/Inc \
 -IDrivers/STM32F0xx_HAL_Driver/Inc \
 -IDrivers/STM32F0xx_HAL_Driver/Inc/Legacy \
@@ -195,6 +197,11 @@ vpath %.S $(sort $(dir $(ASMM_SOURCES)))
 $(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR) 
 	$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
 
+# Rebuild uart_protocol.o when git version stamp changes (GEN always regenerates
+# the header; only this object depends on it so the rest of the tree is stable).
+$(BUILD_DIR)/uart_protocol.o: Protocol/uart_protocol.c Makefile $(BUILD_DIR)/version_gen.h | $(BUILD_DIR)
+	$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(BUILD_DIR)/uart_protocol.lst $< -o $@
+
 $(BUILD_DIR)/%.o: %.s Makefile | $(BUILD_DIR)
 	$(AS) -c $(CFLAGS) $< -o $@
 $(BUILD_DIR)/%.o: %.S Makefile | $(BUILD_DIR)
@@ -204,14 +211,37 @@ $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
+$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
+	$(HEX) $< $@
+	
 $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	$(BIN) $< $@
-
-$(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.bin $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	python3 scripts/fw_sign.py $(BUILD_DIR) $(TARGET)
+	$(BIN) $< $@	
 	
 $(BUILD_DIR):
-	mkdir $@		
+	mkdir $@
+
+#######################################
+# Firmware version stamp (git hash / dirty / build epoch)
+# Generated into build/version_gen.h (gitignored). Config/version_gen.h holds
+# fallback defaults for host unit tests and IDE parsing.
+#######################################
+.PHONY: $(BUILD_DIR)/version_gen.h
+$(BUILD_DIR)/version_gen.h: | $(BUILD_DIR)
+	@HASH=$$(git rev-parse --short=8 HEAD 2>/dev/null || echo 00000000); \
+	if git diff --quiet HEAD -- 2>/dev/null && git diff --quiet --cached 2>/dev/null; then \
+		DIRTY=0; \
+	else \
+		DIRTY=1; \
+	fi; \
+	EPOCH=$$(date +%s); \
+	printf '%s\n' \
+		'#ifndef VERSION_GEN_H' \
+		'#define VERSION_GEN_H' \
+		"#define FW_GIT_HASH_STR \"$${HASH}\"" \
+		"#define FW_GIT_DIRTY $${DIRTY}U" \
+		"#define FW_BUILD_EPOCH $${EPOCH}UL" \
+		'#endif /* VERSION_GEN_H */' \
+		> $@
 
 #######################################
 # flash (ST-Link / SWD, st-flash)
@@ -220,7 +250,7 @@ $(BUILD_DIR):
 ST_FLASH ?= st-flash
 
 .PHONY: flash-stlink
-flash-stlink: $(BUILD_DIR)/$(TARGET).hex
+flash-stlink: $(BUILD_DIR)/$(TARGET).bin
 	$(ST_FLASH) --connect-under-reset write $(BUILD_DIR)/$(TARGET).bin 0x08000000
 
 #######################################
@@ -261,7 +291,6 @@ LINT_USER_SRCS = \
   Services/power_manager.c \
   Services/fault_manager.c \
   Services/flash_cal.c \
-  Services/boot_meta.c \
   Services/bootloader.c \
   Protocol/uart_protocol.c
 
@@ -478,23 +507,28 @@ bl-preset-max:
 	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_BL)/bl.sh preset max
 
 #######################################
-# OTA (scripts/uart/ota_flash.sh, UART0 + stm32flash)
+# UART helpers / OTA (scripts/uart/, UART0)
+#   make get-version
+#   make get-version UART_DEVICE=/dev/ttyACM0
 #   make ota-flash
 #   make ota-flash UART_DEVICE=/dev/ttyACM0
+#   make ota-dump OUT=flash_dump.bin
 #   OTA_IC17_RECOVERY_CMD='...' make ota-flash
 #######################################
 
 SCRIPTS_UART = scripts/uart
+OUT ?= flash_dump.bin
 
-.PHONY: ota-flash
+.PHONY: get-version ota-flash ota-dump
 
-ota-flash: $(BUILD_DIR)/$(TARGET).hex
+get-version:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/get_version.sh
+
+ota-flash: $(BUILD_DIR)/$(TARGET).bin
 	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/ota_flash.sh $(BUILD_DIR)/$(TARGET).bin
 
-.PHONY: flash-dump
-
-flash-dump:
-	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/flash_dump.sh $(or $(OUT),backup.bin) --elf $(BUILD_DIR)/$(TARGET).elf
+ota-dump:
+	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/ota_dump.sh $(OUT)
 
 warnings-check:
 	@echo ">>> [warnings-check] arm-none-eabi-gcc strict warnings on user code"

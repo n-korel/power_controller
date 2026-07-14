@@ -148,7 +148,6 @@ typedef enum {
 #define CMD_BOOTLOADER_ENTER 0x08U
 #define CMD_CALIBRATE_OFFSET 0x09U
 #define CMD_GET_VERSION      0x0AU
-#define CMD_READ_FLASH       0x0BU
 #define CMD_NACK             0xFFU
 
 #define NACK_ERR_UNKNOWN_CMD     0x01U
@@ -160,18 +159,8 @@ typedef enum {
 #define NACK_ERR_GARBAGE         0x07U
 
 #define GET_STATUS_DATA_LEN  22U
-#define GET_VERSION_DATA_LEN 8U
-#define READ_FLASH_MAX_LEN   63U  /* PROTO_MAX_DATA - 1 */
+#define GET_VERSION_DATA_LEN 13U
 #define PING_RESPONSE        0xAAU
-
-/* Firmware release version (major.minor), exposed via CMD_GET_VERSION. */
-#ifndef FW_VERSION_MAJOR
-#define FW_VERSION_MAJOR     1U
-#endif
-#ifndef FW_VERSION_MINOR
-#define FW_VERSION_MINOR     1U
-#endif
-#define FW_VERSION           ((uint16_t)(((uint32_t)FW_VERSION_MAJOR << 8) | (FW_VERSION_MINOR)))
 
 /* ===== Domain bitmask (Rules 4.5) ===== */
 #define DOM_SCALER           0x01U
@@ -222,14 +211,6 @@ typedef enum {
 #endif
 #define FLASH_CAL_MAGIC      0x43414C49U  /* "CALI" */
 #define FLASH_CAL_VERSION    1U
-
-/* ===== Boot metadata (pending-confirm / auto-recovery) ===== */
-#ifndef BOOT_META_ADDR
-#define BOOT_META_ADDR       0x0800F800U  /* 1 KiB page before FLASH_CAL_ADDR */
-#endif
-#define BOOT_META_MAGIC        0x544F4F42U  /* "BOOT" */
-#define BOOT_META_VERSION      1U
-#define BOOT_META_MAX_ATTEMPTS 3U
 #define CURRENT_CHANNELS     5
 
 /* ===== Bootloader (Rules 10) ===== */

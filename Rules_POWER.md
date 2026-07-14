@@ -61,3 +61,5 @@
 49. Refresh `IWDG` выполняется после обработки UART, ADC, state machine и fault-логики.
 50. Refresh `IWDG` запрещён из ISR, HAL callback и низкоуровневых функций периферии.
 51. `ETH1` и `ETH2` никогда не выключаются прошивкой: ни по `POWER_CTRL`, ни по `power_force_off_domains()`, ни при fault.
+52. Команда `GET_VERSION (0x0A)` всегда отвечает `LEN=13`: `git_hash_ascii[8]` + `dirty:uint8` + `build_epoch:uint32_le`.
+53. Полное чтение образа прошивки из flash по UART выполняется только через ROM bootloader (`BOOTLOADER_ENTER` + USART-bootloader read), без отдельной команды прикладного протокола.

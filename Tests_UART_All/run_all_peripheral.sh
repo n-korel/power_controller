@@ -9,8 +9,6 @@ source "$SCRIPT_DIR/lib.sh"
 TESTS=(
   "01_ping.sh"
   "02_reset_fault.sh"
-  "01b_get_version.sh"
-  "30_read_flash_block.sh"
   "23_neg_backlight_no_display.sh"
   "24_neg_lcd_no_scaler.sh"
   "25_neg_scaler_backlight_no_lcd.sh"

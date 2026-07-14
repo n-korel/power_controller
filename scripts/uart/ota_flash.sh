@@ -5,9 +5,6 @@
 #   UART_DEVICE=/dev/ttyUSB0 ./ota_flash.sh build/POWER_Controller.bin
 #   make ota-flash UART_DEVICE=/dev/ttyACM0
 #
-# Use the .bin produced by `make all` (post-processed by scripts/fw_sign.py).
-# A raw objcopy .bin without the CRC footer will fail boot_meta_confirm() on device.
-#
 # Hardware recovery (IC17 on Q7) after a failed attempt:
 #   OTA_IC17_RECOVERY_CMD='your-q7-ic17-boot0-nrst.sh' ./ota_flash.sh firmware.bin
 #
@@ -105,9 +102,6 @@ main() {
     exit 0
   fi
   [[ -f "$FW_BIN" ]] || die "firmware not found: ${FW_BIN}"
-  if [[ "$(basename "$FW_BIN")" == *.elf ]]; then
-    die "pass the signed .bin from 'make all', not the .elf"
-  fi
 
   ota_require_tools
 

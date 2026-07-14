@@ -36,9 +36,6 @@ chmod +x *.sh
 
 | Script | Block | Description |
 |--------|-------|-------------|
-| `01_ping.sh` | — | PING → `0xAA` |
-| `01b_get_version.sh` | — | `GET_VERSION` → `fw_version` + `firmware_crc` |
-| `30_read_flash_block.sh` | — | `READ_FLASH` → 16 байт vector table @ `0x08000000` |
 | `02_reset_fault.sh` | — | RESET_FAULT + all domains OFF + `CALIBRATE_OFFSET` if currents ≫0 at state=0 |
 | `23_neg_backlight_no_display.sh` | K | BACKLIGHT without SCALER/LCD → `status=0x01` |
 | `24_neg_lcd_no_scaler.sh` | K | LCD without SCALER → `status=0x01` |
@@ -79,8 +76,6 @@ If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verif
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `UART_DEVICE` | `/dev/ttyUSB0` | Serial port |
-| `FW_VERSION_MAJOR_EXPECT` | `1` | Expected `GET_VERSION` major |
-| `FW_VERSION_MINOR_EXPECT` | `1` | Expected `GET_VERSION` minor |
 | `SEQ_ON_WAIT_SEC` | `2.0` | Delay after SCALER+LCD ON |
 | `THRESH_I_LCD_TRAP_MA` | `50` | LCD overcurrent trap for block 3 |
 | `LOAD_I_MIN_MA` | `5` | Minimum plausible load current |

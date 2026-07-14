@@ -199,8 +199,3 @@ __attribute__((weak)) uint16_t fault_get_flags(void)
 {
     return 0;
 }
-
-__attribute__((weak)) uint32_t boot_meta_image_crc(void)
-{
-    return 0U;
-}

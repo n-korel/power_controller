@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SET_BRIGHTNESS with SCALER+LCD on, BACKLIGHT off: ACK OK, state stays 0x03
+# SET_BRIGHTNESS with SCALER+LCD on, BACKLIGHT off: ACK OK, display bits stay 0x03
+# (GET_STATUS.state includes always-on ETH → raw often 0x33, not literal 0x03)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -16,21 +17,13 @@ if expect_state_bits "$gs" 0x07 "$PERIPH_PREP_NONDISPLAY_MASK_HEX"; then
   sleep "${SEQ_BL_WAIT_SEC:-1.0}"
   gs="$(wait_get_status_state 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX")" || die "expected state=0x03 after BL OFF"
 fi
-python3 - "$gs" <<'PY' || die "expected state=0x03 (BL bit clear)"
-import sys
-raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-state = raw[21] if len(raw) == 27 else 255
-sys.exit(0 if state == 0x03 else 1)
-PY
+expect_state_bits "$gs" 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" \
+  || die "expected SCALER+LCD on, BL bit clear (state bits 0x03)"
 
 log_info "SET_BRIGHTNESS pwm=500 with BACKLIGHT off (buffers PWM until BL ON)"
 hex="$(cmd_set_brightness 500)" || die "no ACK"
 expect_ack_status "$hex" 0 || die "SET_BRIGHTNESS: expected status=0x00"
 gs="$(cmd_get_status)" || die "no GET_STATUS"
-python3 - "$gs" <<'PY' || die "state must stay 0x03 (no BL bit)"
-import sys
-raw = bytes.fromhex(sys.argv[1].replace(' ', ''))
-state = raw[21] if len(raw) == 27 else 255
-sys.exit(0 if state == 0x03 else 1)
-PY
-log_pass "SET_BRIGHTNESS with BL off: ACK OK, state=0x03 unchanged"
+expect_state_bits "$gs" 0x03 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" \
+  || die "state must keep SCALER+LCD, no BL bit"
+log_pass "SET_BRIGHTNESS with BL off: ACK OK, state bits 0x03 unchanged"

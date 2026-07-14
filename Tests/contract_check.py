@@ -256,30 +256,6 @@ def parse_protocol_yaml(text: str) -> dict[str, object]:
                     break
             break
 
-    def parse_section_layout(section: str) -> tuple[int, list[dict[str, str]]]:
-        layout: list[dict[str, str]] = []
-        data_len = 0
-        for i, ln in enumerate(lines):
-            if ln.strip() != f"{section}:":
-                continue
-            for j in range(i + 1, len(lines)):
-                s = lines[j].strip()
-                if s.startswith("data_len:"):
-                    data_len = int(s.split(":", 1)[1].strip(), 10)
-                if s == "layout:":
-                    for k in range(j + 1, len(lines)):
-                        item = lines[k].strip()
-                        if not item:
-                            continue
-                        if not lines[k].startswith("    - "):
-                            break
-                        layout.append(parse_inline_object(item))
-                    break
-            break
-        return data_len, layout
-
-    gv_len, gv_layout = parse_section_layout("get_version")
-
     # domain bits mapping
     domain_bits: dict[str, int] = {}
     in_domain = False
@@ -313,8 +289,6 @@ def parse_protocol_yaml(text: str) -> dict[str, object]:
         "get_status_len": get_int_value("data_len"),
         "commands": commands,
         "get_status_layout": gs_layout,
-        "get_version_len": gv_len,
-        "get_version_layout": gv_layout,
         "domain_bits": domain_bits,
     }
 
@@ -513,7 +487,6 @@ def main() -> int:
     assert_eq("proto.stx", proto["stx"], defs.get("PROTO_STX"))
     assert_eq("proto.etx", proto["etx"], defs.get("PROTO_ETX"))
     assert_eq("proto.get_status_len", proto["get_status_len"], defs.get("GET_STATUS_DATA_LEN"))
-    assert_eq("proto.get_version_len", proto["get_version_len"], defs.get("GET_VERSION_DATA_LEN"))
 
     # CRC fixed parameters
     assert_eq("proto.crc.poly", proto["crc_poly"], 0x07)
@@ -549,21 +522,6 @@ def main() -> int:
             die(f"get_status.layout: non-contiguous offset at {item.get('field')}: offset={off}, expected={last_end}")
         last_end = off + sizes[typ]
     assert_eq("get_status.layout.total", last_end, proto["get_status_len"])
-
-    # GET_VERSION layout sanity
-    gv_layout = proto["get_version_layout"]  # type: ignore[index]
-    if not gv_layout:
-        die("get_version.layout is empty or not parsed")
-    gv_last_end = 0
-    for item in gv_layout:
-        off = int(item.get("offset", "-1"))
-        typ = item.get("type")
-        if typ not in sizes:
-            die(f"get_version.layout: unknown type {typ!r}")
-        if off != gv_last_end:
-            die(f"get_version.layout: non-contiguous offset at {item.get('field')}: offset={off}, expected={gv_last_end}")
-        gv_last_end = off + sizes[typ]
-    assert_eq("get_version.layout.total", gv_last_end, proto["get_version_len"])
 
     # Domain bits vs DOM_* masks (bit positions)
     dom_map = {

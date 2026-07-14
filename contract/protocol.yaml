@@ -52,21 +52,25 @@ commands:
       req_fields: [{ name: mask, type: uint16_le, offset: 0 }],
     }
   - { name: BOOTLOADER_ENTER, code: 0x08, req_len: 0, resp_len: 1 }
-  - { name: CALIBRATE_OFFSET, code: 0x09, req_len: 0, resp_len: 1,
+  - {
+      name: CALIBRATE_OFFSET,
+      code: 0x09,
+      req_len: 0,
+      resp_len: 1,
       resp_notes: "status=0x00 OK. status=0x01 when state is not 0x30 ETH-only",
     }
-  - { name: GET_VERSION, code: 0x0A, req_len: 0, resp_len: 8 }
   - {
-      name: READ_FLASH,
-      code: 0x0B,
-      req_len: 5,
-      resp_len: ">=1",
-      req_fields:
+      name: GET_VERSION,
+      code: 0x0A,
+      req_len: 0,
+      resp_len: 13,
+      resp_notes: "git_hash_ascii[8] + dirty:u8 + build_epoch:uint32_le",
+      resp_fields:
         [
-          { name: addr, type: uint32_le, offset: 0 },
-          { name: len, type: uint8, offset: 4 },
+          { name: git_hash_ascii, type: bytes8, offset: 0 },
+          { name: dirty, type: uint8, offset: 8 },
+          { name: build_epoch, type: uint32_le, offset: 9 },
         ],
-      resp_notes: "status=0x00 + up to 63 data bytes (resp_len=1+N). status=0x01 on bad addr/len. Valid addr range FLASH_CAL_VALID_START..FLASH_CAL_VALID_END (exclusive end).",
     }
   - {
       name: NACK,
@@ -100,13 +104,6 @@ get_status:
     - { field: state, type: uint8, offset: 18 }
     - { field: fault_flags, type: uint16_le, offset: 19 }
     - { field: inputs, type: uint8, offset: 21 }
-
-get_version:
-  data_len: 8
-  layout:
-    - { field: fw_version, type: uint16_le, offset: 0 }
-    - { field: firmware_crc, type: uint32_le, offset: 2 }
-    - { field: reserved, type: uint16_le, offset: 6 }
 
 domain_bits:
   SCALER: 0

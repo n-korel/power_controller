@@ -63,7 +63,7 @@ _Min_Stack_Size = 0x600; /* required amount of stack */
 MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 8K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 62K
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 64K
 }
 
 /* Define output sections */
@@ -146,15 +146,6 @@ SECTIONS
     KEEP (*(.fini_array*))
     PROVIDE_HIDDEN (__fini_array_end = .);
     . = ALIGN(4);
-  } >FLASH
-
-  /* Firmware image CRC footer — patched post-link by scripts/fw_sign.py */
-  .fw_crc :
-  {
-    . = ALIGN(4);
-    KEEP(*(.fw_crc))
-    . = ALIGN(4);
-    _flash_image_end = .;
   } >FLASH
 
   /* Non-initialized retained RAM: kept across soft reset (e.g. bootloader magic).

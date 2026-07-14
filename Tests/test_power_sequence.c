@@ -318,12 +318,10 @@ void test_reentrancy_guard_rejects_new_full_down_while_active(void)
     power_state = DOM_SCALER | DOM_LCD | DOM_BACKLIGHT;
     power_ctrl_request(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT, 0);
     TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
-    dseq_state_t dseq_after_first = dseq;
 
     uint8_t r = power_ctrl_request(DOM_SCALER, 0);
-    /* DN already running: repeat OFF is a no-op (status=0), must not restart DN. */
-    TEST_ASSERT_EQUAL_UINT8(0, r);
-    TEST_ASSERT_EQUAL_INT(dseq_after_first, dseq);
+    TEST_ASSERT_EQUAL_UINT8(1, r);
+    TEST_ASSERT_NOT_EQUAL(DSEQ_IDLE, dseq);
 }
 
 void test_reentrancy_guard_rejects_new_bl_only_off_while_active(void)
