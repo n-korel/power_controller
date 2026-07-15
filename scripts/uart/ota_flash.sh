@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# OTA: BOOTLOADER_ENTER → stm32flash → uart_wait_mcu_ready
+# OTA: BOOTLOADER_ENTER → [optional dump] → stm32flash → uart_wait_mcu_ready
 #
 # Usage:
 #   UART_DEVICE=/dev/ttyUSB0 ./ota_flash.sh build/POWER_Controller.bin
 #   make ota-flash UART_DEVICE=/dev/ttyACM0
+#   OTA_BACKUP=1 make ota-flash
+#   OTA_BACKUP=1 OTA_BACKUP_PATH=/tmp/before.bin make ota-flash
 #
 # Hardware recovery (IC17 on Q7) after a failed attempt:
 #   OTA_IC17_RECOVERY_CMD='your-q7-ic17-boot0-nrst.sh' ./ota_flash.sh firmware.bin
@@ -13,6 +15,10 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${_SCRIPT_DIR}/lib.sh"
+
+OTA_DUMP_SIZE="${OTA_DUMP_SIZE:-65536}"
+OTA_BACKUP="${OTA_BACKUP:-0}"
+OTA_BACKUP_PATH="${OTA_BACKUP_PATH:-}"
 
 usage() {
   cat <<'EOF'
@@ -27,9 +33,12 @@ Environment:
   OTA_RESET_DELAY_SEC=0.5        pause after BOOTLOADER_ENTER ACK
   OTA_HARDWARE_RESET_DELAY_SEC=0.5  pause after IC17 BOOT0+NRST
   OTA_FLASH_ADDR=0x08000000      flash base address
+  OTA_DUMP_SIZE=65536            bytes to read when OTA_BACKUP=1
   OTA_STM32FLASH=stm32flash      flasher binary
   OTA_IC17_RECOVERY_CMD=         Q7 command: BOOT0=HIGH, NRST pulse, BOOT0=LOW
   OTA_VERIFY_GET_STATUS=1        GET_STATUS after successful PING probe
+  OTA_BACKUP=0                   1 = dump current flash before write (same ROM session)
+  OTA_BACKUP_PATH=               backup file; empty → mktemp under /tmp
 
 Requires: stm32flash, xxd, python3
 EOF
@@ -46,6 +55,27 @@ ota_hardware_bootloader_entry() {
   fi
   log_info "IC17 recovery: ${OTA_IC17_RECOVERY_CMD}"
   bash -c "$OTA_IC17_RECOVERY_CMD"
+}
+
+ota_resolve_backup_path() {
+  if [[ -n "$OTA_BACKUP_PATH" ]]; then
+    printf '%s\n' "$OTA_BACKUP_PATH"
+    return 0
+  fi
+  mktemp "${TMPDIR:-/tmp}/power_controller_ota_backup_XXXXXX.bin"
+}
+
+# Read current flash while still in ROM bootloader (no -g — leave room for -w).
+ota_backup_image() {
+  local out=$1
+  require_tty
+  uart_stty
+  uart_flush
+  log_info "Backup ${OTA_DUMP_SIZE} bytes from ${OTA_FLASH_ADDR} → ${out}"
+  "$OTA_STM32FLASH" -b "$UART_BAUD" \
+    -r "$out" \
+    -S "${OTA_FLASH_ADDR}:${OTA_DUMP_SIZE}" \
+    "$UART_DEVICE"
 }
 
 ota_flash_image() {
@@ -90,6 +120,11 @@ ota_attempt() {
     sleep "$OTA_HARDWARE_RESET_DELAY_SEC"
   fi
 
+  if [[ "$OTA_BACKUP" == 1 ]]; then
+    ota_backup_image "$BACKUP_BIN" || return 1
+    log_pass "Backup saved → ${BACKUP_BIN}"
+  fi
+
   ota_flash_image || return 1
   ota_verify_app || return 1
 }
@@ -105,11 +140,21 @@ main() {
 
   ota_require_tools
 
+  local BACKUP_BIN=""
+  if [[ "$OTA_BACKUP" == 1 ]]; then
+    BACKUP_BIN="$(ota_resolve_backup_path)"
+    log_info "OTA_BACKUP=1 → will dump current flash to ${BACKUP_BIN} before write"
+  fi
+
   local attempt via_hardware=0
   for ((attempt = 1; attempt <= OTA_MAX_RETRIES; attempt++)); do
     log_info "OTA attempt ${attempt}/${OTA_MAX_RETRIES} (via_hardware=${via_hardware})"
     if ota_attempt "$via_hardware"; then
-      log_pass "OTA OK (attempt ${attempt}/${OTA_MAX_RETRIES})"
+      if [[ "$OTA_BACKUP" == 1 ]]; then
+        log_pass "OTA OK (attempt ${attempt}/${OTA_MAX_RETRIES}); backup kept at ${BACKUP_BIN}"
+      else
+        log_pass "OTA OK (attempt ${attempt}/${OTA_MAX_RETRIES})"
+      fi
       exit 0
     fi
     log_fail "OTA attempt ${attempt}/${OTA_MAX_RETRIES} failed"
@@ -125,6 +170,9 @@ main() {
     fi
   done
 
+  if [[ "$OTA_BACKUP" == 1 && -n "$BACKUP_BIN" && -f "$BACKUP_BIN" ]]; then
+    log_fail "OTA failed — previous image backup (if dump succeeded): ${BACKUP_BIN}"
+  fi
   die "OTA failed after ${OTA_MAX_RETRIES} attempts — device may need manual recovery"
 }
 

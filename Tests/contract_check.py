@@ -420,6 +420,95 @@ def parse_iwdg_prescaler_div(value: str) -> int:
     return mapping[value]
 
 
+def parse_ld_length(token: str) -> int:
+    """Parse a linker LENGTH/ORIGIN token such as 63K, 1K, 0x0800FC00."""
+    t = token.strip().rstrip(";")
+    m = re.fullmatch(r"([0-9]+)([KkMm])?", t)
+    if m:
+        n = int(m.group(1), 10)
+        suf = m.group(2)
+        if suf in ("K", "k"):
+            return n * 1024
+        if suf in ("M", "m"):
+            return n * 1024 * 1024
+        return n
+    if t.lower().startswith("0x"):
+        return int(t, 16)
+    die(f"cannot parse linker size/addr token: {token!r}")
+    return 0
+
+
+def parse_ld_memory_region(ld_text: str, name: str) -> tuple[int, int]:
+    """
+    Parse ORIGIN and LENGTH for a MEMORY region like:
+      FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 63K
+    """
+    m = re.search(
+        rf"^\s*{re.escape(name)}\s*\([^)]*\)\s*:\s*ORIGIN\s*=\s*([^,\s]+)\s*,\s*LENGTH\s*=\s*(\S+)",
+        ld_text,
+        re.M,
+    )
+    if not m:
+        die(f"STM32F030XX_FLASH.ld: missing MEMORY region {name}")
+    return parse_ld_length(m.group(1)), parse_ld_length(m.group(2))
+
+
+def check_flash_cal_reserve(repo_root: str, defs: dict[str, int]) -> None:
+    """
+    Firmware FLASH region must stop before flash_cal page (config.h FLASH_CAL_ADDR).
+    Linker MEMORY FLASH + FLASH_CAL must abut and cover the full device flash.
+    """
+    ld_path = os.path.join(repo_root, "STM32F030XX_FLASH.ld")
+    ld_text = read_text(ld_path)
+
+    flash_origin, flash_len = parse_ld_memory_region(ld_text, "FLASH")
+    cal_origin, cal_len = parse_ld_memory_region(ld_text, "FLASH_CAL")
+
+    cal_addr = defs.get("FLASH_CAL_ADDR")
+    cal_erase = defs.get("FLASH_CAL_ERASE_SIZE")
+    cal_valid_start = defs.get("FLASH_CAL_VALID_START")
+    cal_valid_end = defs.get("FLASH_CAL_VALID_END")
+    if cal_addr is None:
+        die("config.h: missing FLASH_CAL_ADDR")
+    if cal_erase is None:
+        die("config.h: missing FLASH_CAL_ERASE_SIZE")
+    if cal_valid_start is None:
+        die("config.h: missing FLASH_CAL_VALID_START")
+    if cal_valid_end is None:
+        die("config.h: missing FLASH_CAL_VALID_END")
+
+    if flash_origin != cal_valid_start:
+        die(
+            f"linker FLASH ORIGIN {flash_origin:#x} must equal "
+            f"FLASH_CAL_VALID_START {cal_valid_start:#x}"
+        )
+    if cal_origin != cal_addr:
+        die(
+            f"linker FLASH_CAL ORIGIN {cal_origin:#x} must equal "
+            f"FLASH_CAL_ADDR {cal_addr:#x}"
+        )
+    if cal_len != cal_erase:
+        die(
+            f"linker FLASH_CAL LENGTH {cal_len} must equal "
+            f"FLASH_CAL_ERASE_SIZE {cal_erase}"
+        )
+    if flash_origin + flash_len != cal_origin:
+        die(
+            f"linker FLASH end {flash_origin + flash_len:#x} must equal "
+            f"FLASH_CAL ORIGIN {cal_origin:#x} (cal page must not overlap firmware)"
+        )
+    if cal_origin + cal_len != cal_valid_end:
+        die(
+            f"linker FLASH_CAL end {cal_origin + cal_len:#x} must equal "
+            f"FLASH_CAL_VALID_END {cal_valid_end:#x}"
+        )
+    if flash_len + cal_len != (cal_valid_end - cal_valid_start):
+        die(
+            f"linker FLASH({flash_len})+FLASH_CAL({cal_len}) must cover "
+            f"device flash ({cal_valid_end - cal_valid_start} bytes)"
+        )
+
+
 def main() -> int:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     adc_yaml_path = os.path.join(repo_root, "contract", "adc_channels.yaml")
@@ -461,6 +550,8 @@ def main() -> int:
 
     defs = parse_config_h_defines(config_h)
     adc_enum = parse_config_h_adc_enum(config_h)
+
+    check_flash_cal_reserve(repo_root, defs)
 
     adc_scalars, adc_channels = parse_adc_channels_yaml(adc_yaml)
 

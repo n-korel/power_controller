@@ -76,6 +76,10 @@ OTA_STM32FLASH="${OTA_STM32FLASH:-stm32flash}"
 # Optional: shell command for IC17 BOOT0+NRST (Q7-side); unset = log and skip
 OTA_IC17_RECOVERY_CMD="${OTA_IC17_RECOVERY_CMD:-}"
 OTA_VERIFY_GET_STATUS="${OTA_VERIFY_GET_STATUS:-1}"
+# Optional backup before write (same ROM session): OTA_BACKUP=1
+OTA_BACKUP="${OTA_BACKUP:-0}"
+# Empty → mktemp. Keep file after OTA for rollback if needed.
+OTA_BACKUP_PATH="${OTA_BACKUP_PATH:-}"
 
 # А.2: токи при нулевой нагрузке (мА)
 TELEMETRY_I_MIN_MA=-200

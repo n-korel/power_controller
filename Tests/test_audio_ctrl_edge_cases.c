@@ -3,9 +3,11 @@
  *
  * Covers:
  *   - AUDIO=OFF interrupts an in-flight ASEQ ON sequence (AUDIO=OFF has priority)
- *   - Repeated AUDIO=ON while amp_active=1 is a no-op
  *   - AUDIO=ON rejected (status=1) while aseq != ASEQ_IDLE
  *   - AUDIO|TOUCH: TOUCH applied even when AUDIO=ON deferred (ASEQ busy)
+ *
+ * amp_active noop is covered by test_aseq_on_while_amp_active_is_noop
+ * in test_audio_sequence.c.
  */
 #include "unity.h"
 #include "config.h"
@@ -14,14 +16,6 @@
 #include "tim.h"
 
 #include "power_manager.c"
-
-static void tick_ms(uint32_t ms)
-{
-    for (uint32_t i = 0; i < ms; i++) {
-        systick_ms++;
-        power_manager_process();
-    }
-}
 
 void setUp(void)
 {
@@ -39,6 +33,14 @@ void test_audio_edge_cases_skipped_when_hw_disabled(void)
     TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
 }
 #else
+
+static void tick_ms(uint32_t ms)
+{
+    for (uint32_t i = 0; i < ms; i++) {
+        systick_ms++;
+        power_manager_process();
+    }
+}
 
 void test_audio_off_interrupts_in_flight_aseq_on(void)
 {
@@ -59,23 +61,6 @@ void test_audio_off_interrupts_in_flight_aseq_on(void)
     GPIO_PinState st;
     TEST_ASSERT_TRUE(pth_last_gpio_write(MUTE_GPIO_Port, MUTE_Pin, &st));
     TEST_ASSERT_EQUAL(GPIO_PIN_SET, st);
-}
-
-void test_audio_on_while_amp_active_is_noop(void)
-{
-    power_state = DOM_AUDIO;
-    amp_active  = 1;
-    aseq        = ASEQ_IDLE;
-
-    uint8_t r = power_ctrl_request(DOM_AUDIO, DOM_AUDIO);
-    TEST_ASSERT_EQUAL_UINT8(0, r);
-    TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
-    TEST_ASSERT_EQUAL_UINT8(1, amp_active);
-
-    tick_ms(50);
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(POWER_AUDIO_GPIO_Port, POWER_AUDIO_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(SDZ_GPIO_Port, SDZ_Pin));
-    TEST_ASSERT_EQUAL_UINT32(0, pth_gpio_write_count(MUTE_GPIO_Port, MUTE_Pin));
 }
 
 void test_audio_on_rejected_while_aseq_busy(void)
@@ -114,7 +99,6 @@ int main(void)
     RUN_TEST(test_audio_edge_cases_skipped_when_hw_disabled);
 #else
     RUN_TEST(test_audio_off_interrupts_in_flight_aseq_on);
-    RUN_TEST(test_audio_on_while_amp_active_is_noop);
     RUN_TEST(test_audio_on_rejected_while_aseq_busy);
     RUN_TEST(test_audio_touch_combined_touch_applied_while_aseq_busy);
 #endif

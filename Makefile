@@ -512,12 +512,16 @@ bl-preset-max:
 #   make get-version UART_DEVICE=/dev/ttyACM0
 #   make ota-flash
 #   make ota-flash UART_DEVICE=/dev/ttyACM0
+#   OTA_BACKUP=1 make ota-flash
+#   OTA_BACKUP=1 OTA_BACKUP_PATH=/tmp/before.bin make ota-flash
 #   make ota-dump OUT=flash_dump.bin
 #   OTA_IC17_RECOVERY_CMD='...' make ota-flash
 #######################################
 
 SCRIPTS_UART = scripts/uart
 OUT ?= flash_dump.bin
+OTA_BACKUP ?= 0
+OTA_BACKUP_PATH ?=
 
 .PHONY: get-version ota-flash ota-dump
 
@@ -525,7 +529,8 @@ get-version:
 	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/get_version.sh
 
 ota-flash: $(BUILD_DIR)/$(TARGET).bin
-	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/ota_flash.sh $(BUILD_DIR)/$(TARGET).bin
+	UART_DEVICE=$(UART_DEVICE) OTA_BACKUP=$(OTA_BACKUP) OTA_BACKUP_PATH=$(OTA_BACKUP_PATH) \
+		bash $(SCRIPTS_UART)/ota_flash.sh $(BUILD_DIR)/$(TARGET).bin
 
 ota-dump:
 	UART_DEVICE=$(UART_DEVICE) bash $(SCRIPTS_UART)/ota_dump.sh $(OUT)

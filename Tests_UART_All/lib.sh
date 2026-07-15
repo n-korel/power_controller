@@ -16,8 +16,9 @@ periph_test_needs_display() {
     12_all_at_once_up.sh|13_fault_recovery_display.sh|14_set_brightness_boundary.sh|\
     15_display_resequence.sh|16_stress_get_status_load.sh|17_iwdg_stress_load.sh|\
     18_fault_v12_under_load.sh|19_fault_scaler_current.sh|20_fault_backlight_current.sh|\
-    21_fault_audio_current.sh|22_fault_reserved_display.sh|26_set_brightness_no_bl.sh|\
-    27_set_brightness_neg.sh|29_calibrate_offset_neg_display.sh) return 0 ;;
+    21_fault_audio_current.sh|26_set_brightness_no_bl.sh|\
+    27_set_brightness_neg.sh|28_bl_bor_diag.sh|29_calibrate_offset_neg_display.sh|\
+    30_fault_v5_under_load.sh|32_fault_v3v3_under_load.sh) return 0 ;;
     *) return 1 ;;
   esac
 }

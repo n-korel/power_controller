@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 TESTS=(
   "01_ping.sh"
+  "22_get_version.sh"
   "02_reset_fault.sh"
   "23_neg_backlight_no_display.sh"
   "24_neg_lcd_no_scaler.sh"
@@ -17,6 +18,7 @@ TESTS=(
   "05_backlight_brightness.sh"
   "26_set_brightness_no_bl.sh"
   "27_set_brightness_neg.sh"
+  "28_bl_bor_diag.sh"
   "06_reset_bridge_display.sh"
   "07_audio_sequencing.sh"
   "08_display_shutdown.sh"
@@ -29,13 +31,15 @@ TESTS=(
   "09_fault_lcd_current.sh"
   "13_fault_recovery_display.sh"
   "18_fault_v12_under_load.sh"
+  "30_fault_v5_under_load.sh"
+  "32_fault_v3v3_under_load.sh"
   "19_fault_scaler_current.sh"
   "20_fault_backlight_current.sh"
   "21_fault_audio_current.sh"
-  "22_fault_reserved_display.sh"
   "29_calibrate_offset_neg_display.sh"
   "31_simple_domains_periph.sh"
   "10_sus_s3_manual.sh"
+  "33_pgood_mid_seq_manual.sh"
 )
 
 pass=0

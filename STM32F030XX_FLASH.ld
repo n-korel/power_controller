@@ -9,6 +9,10 @@
 **  Abstract    : Linker script for STM32F030R8Tx series
 **                64Kbytes FLASH and 8Kbytes RAM
 **
+**                Last 1K of FLASH is reserved for flash_cal (FLASH_CAL_ADDR /
+**                0x0800FC00). Application FLASH region is therefore 63K so
+**                the linker fails if .text/.data grow into the cal page.
+**
 **                Set heap size, stack size and stack location according
 **                to application requirements.
 **
@@ -59,12 +63,23 @@ _sstack = _estack - _Min_Stack_Size;
 _Min_Heap_Size = 0x100;      /* required amount of heap  */
 _Min_Stack_Size = 0x600; /* required amount of stack */
 
-/* Specify the memory areas */
+/* Specify the memory areas.
+ * FLASH: firmware image (code + const + init data load image).
+ * FLASH_CAL: last page reserved for calibration (Services/flash_cal.c).
+ * The regions abut: ORIGIN(FLASH)+LENGTH(FLASH) == ORIGIN(FLASH_CAL).
+ */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 8K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 64K
+RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 8K
+FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 63K
+FLASH_CAL (r)   : ORIGIN = 0x0800FC00, LENGTH = 1K
 }
+
+/* Fail at link time if the firmware region is resized without keeping flash_cal. */
+ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == ORIGIN(FLASH_CAL),
+       "FLASH must end exactly at FLASH_CAL (calibration page)")
+ASSERT(LENGTH(FLASH) + LENGTH(FLASH_CAL) == 64K,
+       "FLASH + FLASH_CAL must cover the full 64K device flash")
 
 /* Define output sections */
 SECTIONS
