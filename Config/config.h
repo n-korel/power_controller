@@ -188,6 +188,7 @@ typedef enum {
 #define FAULT_SEQ_ABORT      0x2000U
 #define FAULT_INTERNAL       0x4000U
 #define FAULT_RESERVED       0x8000U
+#define FAULT_BOOT_UNCONFIRMED FAULT_RESERVED  /* OTA pending-confirm exhausted */
 
 /* ===== Bridge reset ===== */
 #define BRIDGE_RST_PULSE_MS  10U
@@ -213,17 +214,39 @@ typedef enum {
 #define FLASH_CAL_VERSION    1U
 #define CURRENT_CHANNELS     5
 
+/* ===== OTA boot metadata (pending-confirm / safe-hold) ===== */
+/* Host-tests may redefine FLASH_BOOT_META_ADDR to a RAM buffer before including this header. */
+#ifndef FLASH_BOOT_META_ADDR
+#define FLASH_BOOT_META_ADDR       0x0800F400U
+#endif
+#ifndef FLASH_BOOT_META_VALID_START
+#define FLASH_BOOT_META_VALID_START 0x08000000U
+#endif
+#ifndef FLASH_BOOT_META_VALID_END
+#define FLASH_BOOT_META_VALID_END   0x08010000U
+#endif
+#ifndef FLASH_BOOT_META_ERASE_SIZE
+#define FLASH_BOOT_META_ERASE_SIZE  1024U
+#endif
+#ifndef FLASH_BOOT_META_RUNTIME_ALIGN_CHECK
+#define FLASH_BOOT_META_RUNTIME_ALIGN_CHECK 0U
+#endif
+#define FLASH_BOOT_META_MAGIC     0x424D4554U /* "BMET" */
+#define FLASH_BOOT_META_VERSION   1U
+#define BOOT_META_MAX_ATTEMPTS       3U
+#define BOOT_META_CONFIRM_STABLE_MS  10000U
+
 /* ===== Bootloader (Rules 10) ===== */
 #define SRAM_MAGIC_VALUE     0xDEADBEEFU
-/* System memory / ROM USART bootloader (chip-specific base, same end):
- *   STM32F030x8  → 0x1FFFEC00 (AN2606, 3 KB)
- *   APM32F030x8  → 0x1FFFD800 (SEGGER APM32F0xx KB, 8 KB)  ← board MCU
+/* System memory / ROM USART bootloader (chip-specific):
+ *   STM32F030x8 / chipid 0x0440 → 0x1FFFEC00, 3 KB (AN2606 §15)  ← board MCU
+ *   APM32F030x8 (if used)       → 0x1FFFD800, 8 KB (SEGGER KB)
  * Not 0x1FFF0000 (other ST lines / wrong for F030). */
 #ifndef ROM_BOOTLOADER_ADDR
-#define ROM_BOOTLOADER_ADDR  0x1FFFD800U
+#define ROM_BOOTLOADER_ADDR  0x1FFFEC00U
 #endif
 #ifndef ROM_BOOTLOADER_END
-#define ROM_BOOTLOADER_END   0x1FFFF7FFU
+#define ROM_BOOTLOADER_END   0x1FFFEFFFU
 #endif
 
 /* ===== Global systick (0.3) ===== */

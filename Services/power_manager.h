@@ -15,6 +15,12 @@ void    power_set_brightness(uint16_t pwm);
 uint8_t power_reset_bridge(void);
 void    power_safe_state(void);
 
+/* Start the existing graceful DN/OFF sequencers (same ones used for a normal
+ * host-driven shutdown) for whatever domains are currently on, instead of
+ * cutting them all at once. No-op if display/audio are already idle+off.
+ * Poll power_is_idle() and finish with power_safe_state() once idle. */
+void    power_graceful_shutdown_begin(void);
+
 /* Called by fault_manager to force-off specific domains */
 void    power_force_off_domains(uint16_t domain_mask);
 

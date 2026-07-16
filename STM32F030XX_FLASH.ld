@@ -9,9 +9,9 @@
 **  Abstract    : Linker script for STM32F030R8Tx series
 **                64Kbytes FLASH and 8Kbytes RAM
 **
-**                Last 1K of FLASH is reserved for flash_cal (FLASH_CAL_ADDR /
-**                0x0800FC00). Application FLASH region is therefore 63K so
-**                the linker fails if .text/.data grow into the cal page.
+**                Last 2K of FLASH: FLASH_BOOT_META (0x0800F400, 1K) +
+**                FLASH_CAL (0x0800FC00, 1K). Application FLASH is 61K so
+**                the linker fails if .text/.data grow into those pages.
 **
 **                Set heap size, stack size and stack location according
 **                to application requirements.
@@ -65,21 +65,26 @@ _Min_Stack_Size = 0x600; /* required amount of stack */
 
 /* Specify the memory areas.
  * FLASH: firmware image (code + const + init data load image).
+ * FLASH_BOOT_META: OTA pending-confirm page (Services/boot_meta.c).
  * FLASH_CAL: last page reserved for calibration (Services/flash_cal.c).
- * The regions abut: ORIGIN(FLASH)+LENGTH(FLASH) == ORIGIN(FLASH_CAL).
+ * Regions abut: FLASH -> FLASH_BOOT_META -> FLASH_CAL.
  */
 MEMORY
 {
 RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 8K
-FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 63K
+FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 61K
+FLASH_BOOT_META (r) : ORIGIN = 0x0800F400, LENGTH = 1K
 FLASH_CAL (r)   : ORIGIN = 0x0800FC00, LENGTH = 1K
 }
 
-/* Fail at link time if the firmware region is resized without keeping flash_cal. */
-ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == ORIGIN(FLASH_CAL),
-       "FLASH must end exactly at FLASH_CAL (calibration page)")
-ASSERT(LENGTH(FLASH) + LENGTH(FLASH_CAL) == 64K,
-       "FLASH + FLASH_CAL must cover the full 64K device flash")
+/* Fail at link time if regions are resized without keeping boot_meta / flash_cal.
+ * 1K gap at 0x0800F800 is reserved for future FLASH_THRESH (Feature 2). */
+ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == ORIGIN(FLASH_BOOT_META),
+       "FLASH size drifted — FLASH_BOOT_META would overlap firmware")
+ASSERT(ORIGIN(FLASH_BOOT_META) + LENGTH(FLASH_BOOT_META) + 1K == ORIGIN(FLASH_CAL),
+       "FLASH_BOOT_META / reserved gap drifted — would overlap FLASH_CAL")
+ASSERT(LENGTH(FLASH) + LENGTH(FLASH_BOOT_META) + 1K + LENGTH(FLASH_CAL) == 64K,
+       "FLASH + FLASH_BOOT_META + reserved + FLASH_CAL must cover the full 64K")
 
 /* Define output sections */
 SECTIONS

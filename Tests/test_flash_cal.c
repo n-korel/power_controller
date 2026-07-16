@@ -45,6 +45,7 @@ void adc_set_current_offset(uint8_t idx, uint16_t off)
 
 volatile uint32_t systick_ms;
 
+#include "flash_util.c"
 #include "flash_cal.c"
 
 /* Build a valid flash_cal_t image in the buffer with a given offset array */

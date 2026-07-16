@@ -36,6 +36,7 @@ chmod +x *.sh
 
 | Script | Block | Description |
 |--------|-------|-------------|
+| `01_ping.sh` | — | `PING` (`0x01`): ACK with `0xAA` |
 | `22_get_version.sh` | — | `GET_VERSION` (`0x0A`): LEN=13 + CRC (invariant 52) |
 | `02_reset_fault.sh` | — | RESET_FAULT + all domains OFF + `CALIBRATE_OFFSET` if currents ≫0 at state=0 |
 | `23_neg_backlight_no_display.sh` | K | BACKLIGHT without SCALER/LCD → `status=0x01` |
@@ -68,6 +69,8 @@ chmod +x *.sh
 | `31_simple_domains_periph.sh` | K | TOUCH/ETH toggle — `[SKIP]` if `PERIPH_TOUCH_HW_ENABLED=0` |
 | `10_sus_s3_manual.sh` | 6 | SUS_S3# → PWRBTN# procedure (manual) |
 | `33_pgood_mid_seq_manual.sh` | 6 | PGOOD drop mid-sequence → emergency off + fault (manual, inv. 44) |
+| `34_ota_confirm_reset_fault.sh` | OTA | reflash → `RESET_FAULT` confirm (needs `stm32flash`; optional `OTA_NRST_CMD`) |
+| `35_ota_unconfirmed_safe_hold.sh` | OTA | 3× NRST within 10s → `FAULT_BOOT_UNCONFIRMED`; not in `run_all` |
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
 

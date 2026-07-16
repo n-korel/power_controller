@@ -186,7 +186,7 @@ flowchart LR
 
 `SET_THRESHOLDS`: пороги защит в рантайме (мВ / мА); формат `mask` + поля по битам.
 
-`BOOTLOADER_ENTER`: ACK → safe state → reset → ROM bootloader на **UART0** (`0x1FFFD800` для APM32F030R8T6; `0x1FFFEC00` для STM32F030x8 — см. `ROM_BOOTLOADER_ADDR` в `config.h`). После команды связь с приложением обрывается — будьте готовы к OTA-сессии.
+`BOOTLOADER_ENTER`: ACK → safe state → reset → ROM bootloader на **UART0** (`0x1FFFEC00` для STM32F030x8 / chipid `0x0440` — см. `ROM_BOOTLOADER_ADDR` в `config.h`). После команды связь с приложением обрывается — будьте готовы к OTA-сессии.
 
 `CALIBRATE_OFFSET`: при **нулевой** нагрузке и **выключенных управляемых доменах** (`GET_STATUS.state == 0x30`, только `ETH1|ETH2`) сохранить offset во flash MCU. Перед командой: при fault — `RESET_FAULT`, затем выключить все домены кроме always-on ETH. При любых других битах в `state` — `status=0x01`, flash не пишется.
 
@@ -229,16 +229,17 @@ flowchart LR
 
 ### `fault_flags` (основные биты)
 
-| Бит  | Имя                | Смысл (кратко)             |
-| ---- | ------------------ | -------------------------- |
-| 0    | `FAULT_SCALER`     | авария домена SCALER       |
-| 1    | `FAULT_LCD`        | авария LCD                 |
-| 2    | `FAULT_BACKLIGHT`  | авария подсветки           |
-| 3    | `FAULT_AUDIO`      | перегрузка / fault аудио   |
-| 7    | `FAULT_PGOOD_LOST` | потеря PGOOD               |
-| 8    | `FAULT_AMP_FAULTZ` | вход Faultz усилителя      |
-| 9–12 | `FAULT_V*_RANGE`   | напряжение вне порога      |
-| 13   | `FAULT_SEQ_ABORT`  | прерван display sequencing |
+| Бит  | Имя                     | Смысл (кратко)                                      |
+| ---- | ----------------------- | --------------------------------------------------- |
+| 0    | `FAULT_SCALER`          | авария домена SCALER                                |
+| 1    | `FAULT_LCD`             | авария LCD                                          |
+| 2    | `FAULT_BACKLIGHT`       | авария подсветки                                    |
+| 3    | `FAULT_AUDIO`           | перегрузка / fault аудио                            |
+| 7    | `FAULT_PGOOD_LOST`      | потеря PGOOD                                        |
+| 8    | `FAULT_AMP_FAULTZ`      | вход Faultz усилителя                               |
+| 9–12 | `FAULT_V*_RANGE`        | напряжение вне порога                               |
+| 13   | `FAULT_SEQ_ABORT`       | прерван display sequencing                          |
+| 15   | `FAULT_BOOT_UNCONFIRMED`| OTA: исчерпаны попытки boot без подтверждения образа |
 
 Телеметрия допускает погрешность порядка **±10%** (АЦП, делители, датчики). Токи могут «упираться» в потолок из‑за VDDA 2.5 В (~3.2 А max на канал) — см. прошивочную документацию.
 
@@ -344,6 +345,7 @@ sequenceDiagram
     participant ROM as ROM bootloader
 
     Q7->>App: BOOTLOADER_ENTER (0x08)
+    App->>App: graceful DN (PWM→BL→LCD→SCALER / AUDIO off)
     App->>App: power_safe_state()
     App->>Q7: ACK status=0x00
     App->>App: SRAM magic + NVIC_SystemReset()
@@ -358,16 +360,17 @@ sequenceDiagram
 
 При `BOOTLOADER_ENTER (0x08)`:
 
-1. **`power_safe_state()`** — все домены OFF, кроме always-on `ETH1`/`ETH2` (`state = 0x30`)
-2. **ACK** с `status=0x00` (отправляется **до** reset — UART TX должен завершиться)
-3. **`bootloader_schedule()`** — флаг в main loop
-4. **`bootloader_process()`** — запись SRAM magic `0xDEADBEEF` в секцию `.noinit`, `NVIC_SystemReset()`
-5. После reset **`bootloader_check()`** (до `HAL_Init`) — jump в ROM по `ROM_BOOTLOADER_ADDR`
+1. **`bootloader_enter_request()`** — запускает штатный graceful DN (PWM→BL→LCD→RST→SCALER, AUDIO off), чтобы не рубить нагрузку с `+12V_A` одним махом (Q7 и домены сидят на общей раздаче от этого бака)
+2. Когда `power_is_idle()`: **`power_safe_state()`** — финальный safe state (`state = 0x30`, ETH1|ETH2)
+3. **ACK** с `status=0x00` (отправляется **до** reset — UART TX должен завершиться)
+4. **`bootloader_schedule()`** — флаг в main loop
+5. **`bootloader_process()`** — `boot_meta_arm_pending()` (метка OTA pending-confirm во flash), запись SRAM magic `0xDEADBEEF` в секцию `.noinit`, `NVIC_SystemReset()`
+6. После reset **`bootloader_check()`** (до `HAL_Init`) — jump в ROM по `ROM_BOOTLOADER_ADDR`
 
-| MCU                     | `ROM_BOOTLOADER_ADDR` |
-| ----------------------- | --------------------- |
-| **APM32F030x8** (плата) | `0x1FFFD800`          |
-| STM32F030x8             | `0x1FFFEC00`          |
+| MCU                                          | `ROM_BOOTLOADER_ADDR` |
+| -------------------------------------------- | --------------------- |
+| **STM32F030x8 / chipid 0x0440** (плата)      | `0x1FFFEC00` (3 KB)   |
+| APM32F030x8 (если иной system memory map)    | `0x1FFFD800` (8 KB)   |
 
 После jump прикладной протокол `[STX]…[ETX]` **не работает** — активен ROM USART-bootloader.
 
@@ -402,7 +405,9 @@ stm32flash -b 115200 \
 | --------------- | ----------------------------- |
 | `-w`            | Запись файла                  |
 | `-v`            | Верификация образа во flash   |
-| `-g 0x08000000` | Reset и запуск с начала flash |
+| `-g 0x08000000` | Запуск с начала flash (не полный аппаратный reset, см. ниже) |
+
+`-g` — это команда `Go` ROM bootloader-а: она только выставляет `PC`/`SP` из вектора приложения, а не делает полноценный аппаратный reset. На Cortex-M0 нет `VTOR`, таблица векторов исключений всегда читается по адресу `0x00000000`, куда ROM bootloader на время своей работы маппит system memory — `Go` это не восстанавливает и может оставить USART/NVIC прерывания включёнными. Прошивка компенсирует это в `SystemInit()` (`Core/Src/system_stm32f0xx.c`, до копирования `.data`/`.bss`): `__disable_irq()`, ремап Main Flash на `0x00000000`, сброс SysTick/NVIC pending. Ремап в `main()` был бы слишком поздним — первое же прерывание во время init улетело бы в ROM. Без этого приложение после `-g` «зависало» бы (не отвечает на `PING`), хотя `stm32flash` печатал успешный `Wrote and verified` и `Starting execution`.
 
 #### Фаза 3: верификация после прошивки
 
@@ -413,6 +418,21 @@ stm32flash -b 115200 \
 | Протокол жив       | `GET_STATUS` (опционально) | 27 байт, `LEN=0x16`, CRC сходится |
 
 **GET_STATUS** — запрос: `02 04 00 54 03`.
+
+### Подтверждение образа после OTA (pending-confirm)
+
+Второго flash-слота нет — rollback невозможен. Вместо этого: **подтверди или остановись**.
+
+1. Перед прыжком в ROM bootloader прошивка пишет во flash (`0x0800F400`) метку `pending_confirm` и обнуляет счётчик попыток.
+2. Каждый boot с этой меткой увеличивает `boot_attempts` (счётчик привязан к `FW_GIT_HASH` текущего образа).
+3. Подтверждение образа:
+   - **явно:** `RESET_FAULT`, если в `fault_flags` стоит `FAULT_BOOT_UNCONFIRMED` (`0x8000`) — сразу сбрасывает pending;
+   - **авто:** после `BOOT_META_CONFIRM_STABLE_MS` (10 с) непрерывной работы `app_step()` — без гейта по другим fault.
+4. Если `boot_attempts >= 3` без подтверждения — **safe-hold**: `power_startup_begin()` не вызывается, в `fault_flags` выставляется `FAULT_BOOT_UNCONFIRMED`, UART/ADC работают как обычно. Q7 видит причину в `GET_STATUS` и может снова сделать `BOOTLOADER_ENTER` / `RESET_FAULT` + `POWER_CTRL`.
+
+Важно: `RESET_FAULT` по-прежнему очищает **весь** `fault_flags` (не только bit15). Вызов сразу после OTA как «confirm» снимет и любой другой latched fault, если он уже был.
+
+Метка `boot_meta` живёт на отдельной странице и переживает обычную перепрошивку `st-flash write … 0x08000000` — это намеренно (счётчик попыток иначе бессмысленен).
 
 ### Аппаратный резерв (IC17 на Q7)
 

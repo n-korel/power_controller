@@ -1,17 +1,19 @@
 /*
- * Unit tests: BOOTLOADER_ENTER must not run safe_state / bootloader_schedule
+ * Unit tests: BOOTLOADER_ENTER must not dispatch (call bootloader_enter_request())
  * while UART TX is busy (uart_protocol_process early return).
  *
  * On hardware, reset before ACK is not observable; this guards the contract
  * that dispatch is deferred until TX completes so ACK can be sent first.
+ * power_safe_state()/ACK/bootloader_schedule() themselves now run later,
+ * from bootloader_process() once the graceful shutdown reaches idle — see
+ * Tests/test_bootloader.c.
  */
 #include "unity.h"
 #include "config.h"
 #include "stm32f0xx_hal.h"
 #include <string.h>
 
-static uint8_t mock_power_safe_state_called;
-static uint8_t mock_bootloader_schedule_called;
+static uint8_t mock_bootloader_enter_request_called;
 
 uint16_t adc_get_voltage_mv(uint8_t idx) { (void)idx; return 0; }
 int16_t  adc_get_current_ma(uint8_t idx) { (void)idx; return 0; }
@@ -28,9 +30,9 @@ void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
 {
     (void)i; (void)mn; (void)mx;
 }
-void     power_safe_state(void)    { mock_power_safe_state_called = 1; }
-void     bootloader_schedule(void) { mock_bootloader_schedule_called = 1; }
+void     bootloader_enter_request(void) { mock_bootloader_enter_request_called = 1; }
 uint8_t  flash_cal_calibrate(void) { return 0; }
+void     boot_meta_confirm(void) {}
 uint16_t adc_get_raw_avg(uint8_t idx) { (void)idx; return 0; }
 
 volatile uint32_t systick_ms;
@@ -114,14 +116,13 @@ void setUp(void)
     p_last_byte_ts = 0;
     p_data_cnt = 0;
     systick_ms = 1000;
-    mock_power_safe_state_called = 0;
-    mock_bootloader_schedule_called = 0;
+    mock_bootloader_enter_request_called = 0;
     memset(tx_buf, 0, sizeof(tx_buf));
 }
 
 void tearDown(void) {}
 
-void test_bootloader_enter_tx_busy_defers_safe_state_and_schedule(void)
+void test_bootloader_enter_tx_busy_defers_dispatch(void)
 {
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_BOOTLOADER_ENTER, NULL, 0);
@@ -135,12 +136,11 @@ void test_bootloader_enter_tx_busy_defers_safe_state_and_schedule(void)
     }
 
     TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_safe_state_called);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_bootloader_schedule_called);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_bootloader_enter_request_called);
     TEST_ASSERT_EQUAL_UINT32(0, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
 }
 
-void test_bootloader_enter_after_tx_cplt_runs_safe_state_ack_schedule(void)
+void test_bootloader_enter_after_tx_cplt_dispatches_enter_request(void)
 {
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_BOOTLOADER_ENTER, NULL, 0);
@@ -149,19 +149,19 @@ void test_bootloader_enter_after_tx_cplt_runs_safe_state_ack_schedule(void)
     tx_busy_flag = 1;
     uart_protocol_process();
     TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_safe_state_called);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_bootloader_enter_request_called);
 
     uart_tx_cplt_cb();
     hal_call_log_count = 0;
     uart_protocol_process();
 
+    /* power_safe_state()/ACK/bootloader_schedule() no longer happen here —
+     * bootloader_enter_request() only kicks off graceful shutdown; the rest
+     * runs later from bootloader_process() once power_is_idle() (see
+     * Tests/test_bootloader.c). No ACK is sent yet at this point. */
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
-    TEST_ASSERT_EQUAL_UINT8(1, mock_power_safe_state_called);
-    TEST_ASSERT_EQUAL_HEX8(CMD_BOOTLOADER_ENTER, tx_buf[1]);
-    TEST_ASSERT_EQUAL_HEX8(0x00, tx_buf[3]);
-    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_schedule_called);
-    TEST_ASSERT_EQUAL_UINT32(1, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
-    TEST_ASSERT_EQUAL_UINT8(1, tx_busy_flag);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_enter_request_called);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
 }
 
 void test_bootloader_enter_while_prior_tx_finishes_then_dispatches(void)
@@ -181,24 +181,20 @@ void test_bootloader_enter_while_prior_tx_finishes_then_dispatches(void)
 
     uart_protocol_process();
     TEST_ASSERT_EQUAL_UINT8(1, queued_packet_count());
-    TEST_ASSERT_EQUAL_UINT8(0, mock_power_safe_state_called);
-    TEST_ASSERT_EQUAL_UINT8(0, mock_bootloader_schedule_called);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_bootloader_enter_request_called);
 
     uart_tx_cplt_cb();
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_UINT8(0, queued_packet_count());
-    TEST_ASSERT_EQUAL_UINT8(1, mock_power_safe_state_called);
-    TEST_ASSERT_EQUAL_HEX8(CMD_BOOTLOADER_ENTER, tx_buf[1]);
-    TEST_ASSERT_EQUAL_HEX8(0x00, tx_buf[3]);
-    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_schedule_called);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_enter_request_called);
 }
 
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_bootloader_enter_tx_busy_defers_safe_state_and_schedule);
-    RUN_TEST(test_bootloader_enter_after_tx_cplt_runs_safe_state_ack_schedule);
+    RUN_TEST(test_bootloader_enter_tx_busy_defers_dispatch);
+    RUN_TEST(test_bootloader_enter_after_tx_cplt_dispatches_enter_request);
     RUN_TEST(test_bootloader_enter_while_prior_tx_finishes_then_dispatches);
     return UNITY_END();
 }

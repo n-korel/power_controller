@@ -325,6 +325,41 @@ void power_safe_state(void)
     sus_cooldown_ts   = 0;
 }
 
+/* Start graceful shutdown via the existing DN/OFF sequencers instead of the
+ * instant all-at-once cutoff in power_safe_state(). Used by BOOTLOADER_ENTER
+ * to spread the SCALER+LCD+BACKLIGHT+AUDIO load-step over time instead of
+ * dropping it in one shot. Aborts an in-flight UP into DN so OTA is not
+ * blocked waiting for BL soft-start (~2s). Leaves an already-running DN/BLOFF
+ * alone. Caller finishes with power_safe_state() once power_is_idle(). */
+void power_graceful_shutdown_begin(void)
+{
+    uint8_t disp_bits = (uint8_t)(power_state & (DOM_SCALER | DOM_LCD | DOM_BACKLIGHT));
+    uint8_t in_disp_up = (dseq >= DSEQ_UP_SCALER_ON && dseq <= DSEQ_UP_DONE) ? 1U : 0U;
+    uint8_t in_disp_dn = (dseq >= DSEQ_DN_PWM_ZERO && dseq <= DSEQ_DN_DONE) ? 1U : 0U;
+    uint8_t in_bloff   = (dseq >= DSEQ_BLOFF_PWM_ZERO && dseq <= DSEQ_BLOFF_DONE) ? 1U : 0U;
+
+    /* Do not re-arm §6.5 auto-start while we are shutting down for OTA. */
+    sseq = STARTUP_IDLE;
+    auto_startup_pending_aux = 0;
+
+    if (!in_disp_dn && !in_bloff) {
+        if (disp_bits != 0U || in_disp_up) {
+            dseq = DSEQ_DN_PWM_ZERO;
+        }
+    }
+
+    if (aseq >= ASEQ_ON_POWER && aseq <= ASEQ_ON_DONE) {
+        aseq = ASEQ_OFF_MUTE;
+    } else if (aseq == ASEQ_IDLE && (power_state & DOM_AUDIO)) {
+        aseq = ASEQ_OFF_MUTE;
+    }
+
+    if (power_state & DOM_TOUCH) {
+        gpio_domain_set(DOM_TOUCH, 0);
+        power_state &= (uint8_t)~DOM_TOUCH;
+    }
+}
+
 /* ===== Emergency display off (no delays, Rules 6.2) ===== */
 void power_emergency_display_off(void)
 {

@@ -26,6 +26,8 @@ void input_service_init(void)          { ++seq; }
 void power_manager_init(void)          { ++seq; }
 void fault_manager_init(void)          { ++seq; }
 void flash_cal_load(void)              { ++seq; }
+void boot_meta_init(void)              { ++seq; }
+uint8_t boot_meta_safe_hold(void)      { return 0; }
 void uart_protocol_init(void)          { order_uart_protocol_init = ++seq; }
 void power_startup_begin(void)         { ++seq; }
 void fault_set_flag(uint16_t flag)     { (void)flag; ++seq; }
@@ -39,6 +41,7 @@ void input_service_process(void)       {}
 void power_manager_process(void)       {}
 void fault_manager_process(void)       {}
 void bootloader_process(void)          {}
+void boot_meta_process(void)           {}
 
 /* HAL return codes are configurable via hal_stubs.c globals. */
 extern void hal_stub_reset(void);

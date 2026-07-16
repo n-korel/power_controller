@@ -55,6 +55,8 @@ Services/input_service.c \
 Services/power_manager.c \
 Services/fault_manager.c \
 Services/flash_cal.c \
+Services/flash_util.c \
+Services/boot_meta.c \
 Services/bootloader.c \
 Protocol/uart_protocol.c \
 Drivers/STM32F0xx_HAL_Driver/Src/stm32f0xx_hal_adc.c \
@@ -291,6 +293,8 @@ LINT_USER_SRCS = \
   Services/power_manager.c \
   Services/fault_manager.c \
   Services/flash_cal.c \
+  Services/flash_util.c \
+  Services/boot_meta.c \
   Services/bootloader.c \
   Protocol/uart_protocol.c
 

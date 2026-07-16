@@ -79,6 +79,8 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   bootloader_check();
+  /* Flash remap after ROM Go is done in SystemInit() (before .data/.bss
+   * init) — see Core/Src/system_stm32f0xx.c. Too late to do it here. */
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

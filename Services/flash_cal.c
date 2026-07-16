@@ -1,26 +1,11 @@
 #include "flash_cal.h"
+#include "flash_util.h"
 #include "config.h"
 #include "adc_service.h"
 #include "power_manager.h"
 #include "stm32f0xx_hal.h"
 #include <string.h>
 #include <stddef.h>
-
-/* ===== Software CRC32 (no float, simple implementation) ===== */
-static uint32_t sw_crc32(const uint8_t *data, uint32_t len)
-{
-    uint32_t crc = 0xFFFFFFFF;
-    for (uint32_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (uint8_t bit = 0; bit < 8; bit++) {
-            if (crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320U;
-            else
-                crc >>= 1;
-        }
-    }
-    return ~crc;
-}
 
 static uint8_t flash_cal_addr_valid_for_load(void)
 {

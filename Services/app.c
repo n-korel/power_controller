@@ -11,6 +11,7 @@
 #include "power_manager.h"
 #include "fault_manager.h"
 #include "flash_cal.h"
+#include "boot_meta.h"
 #include "bootloader.h"
 #include "config.h"
 
@@ -23,6 +24,7 @@ void app_init(void)
     power_manager_init();
     fault_manager_init();
     flash_cal_load();
+    boot_meta_init();
 
     if (HAL_ADCEx_Calibration_Start(&hadc) != HAL_OK) {
         /* Keep boot flow alive on MCU-compatible parts where ADC calibration
@@ -40,7 +42,11 @@ void app_init(void)
 
     uart_protocol_init();
 
-    power_startup_begin();
+    if (boot_meta_safe_hold()) {
+        fault_set_flag(FAULT_BOOT_UNCONFIRMED);
+    } else {
+        power_startup_begin();
+    }
 }
 
 void app_step(void)
@@ -51,6 +57,7 @@ void app_step(void)
     power_manager_process();
     fault_manager_process();
     bootloader_process();
+    boot_meta_process();
 
     if (fault_get_flags() != 0U) {
         return;

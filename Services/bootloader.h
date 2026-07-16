@@ -9,6 +9,11 @@ void bootloader_check(void);
 /* Schedule jump after TX completes (called from BOOTLOADER_ENTER handler) */
 void bootloader_schedule(void);
 
+/* BOOTLOADER_ENTER entry point: starts graceful domain shutdown, then
+ * (from bootloader_process(), once idle) runs power_safe_state(), sends the
+ * ACK and calls bootloader_schedule(). */
+void bootloader_enter_request(void);
+
 /* Call from main loop to execute pending jump */
 void bootloader_process(void);
 

@@ -22,6 +22,11 @@ static uint32_t fake_rom_vec[2];
 #include "stm32f0xx_hal.h"
 
 uint8_t uart_tx_busy(void) { return 0; }
+void boot_meta_arm_pending(void) {}
+uint8_t power_is_idle(void) { return 1; }
+void power_safe_state(void) {}
+void power_graceful_shutdown_begin(void) {}
+void uart_send_ack(uint8_t cmd, uint8_t status) { (void)cmd; (void)status; }
 
 volatile uint32_t systick_ms;
 

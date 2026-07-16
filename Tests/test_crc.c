@@ -35,8 +35,9 @@ void     fault_set_flag(uint16_t flag) { (void)flag; }
 uint8_t  power_reset_bridge(void) { return 0; }
 void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx) { (void)i; (void)mn; (void)mx; }
 void     power_safe_state(void) {}
-void     bootloader_schedule(void) {}
+void     bootloader_enter_request(void) {}
 uint8_t  flash_cal_calibrate(void) { return 0; }
+void     boot_meta_confirm(void) {}
 
 volatile uint32_t systick_ms;
 

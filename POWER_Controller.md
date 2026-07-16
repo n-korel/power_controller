@@ -169,7 +169,7 @@ POWER_CTRL  →  явное включение нужных доменов (sequ
 
 ### Обновление прошивки MCU
 
-**Штатно:** `BOOTLOADER_ENTER (0x08)` → ACK → reset → ROM bootloader (`ROM_BOOTLOADER_ADDR`, `0x1FFFD800` на APM32) на **UART0** ([19.5](#195-bootloader-flow-обновление-прошивки-mcu-из-linuxq7)).
+**Штатно:** `BOOTLOADER_ENTER (0x08)` → ACK → reset → ROM bootloader (`ROM_BOOTLOADER_ADDR`, `0x1FFFEC00` на STM32F030x8 / chipid `0x0440`) на **UART0** ([19.5](#195-bootloader-flow-обновление-прошивки-mcu-из-linuxq7)).
 
 **Аппаратно (резерв):** IC17 на Q7 — `BOOT0` + импульс `NRST` ([1.2](#12-аппаратный-вход-в-rom-bootloader-через-ic17-на-стороне-q7)).
 
@@ -841,10 +841,11 @@ Offset по каналам: `flash_cal_load()` / `CMD_CALIBRATE_OFFSET` (`Servic
 
 ### 19.5 Bootloader flow (обновление / чтение прошивки MCU из Linux/Q7)
 
-1. `power_safe_state()` → SRAM magic `0xDEADBEEF` → ACK → `NVIC_SystemReset()` → jump в ROM (`ROM_BOOTLOADER_ADDR`, `0x1FFFD800` на APM32F030R8T6) на UART0.  
+1. `power_safe_state()` → SRAM magic `0xDEADBEEF` → ACK → `NVIC_SystemReset()` → jump в ROM (`ROM_BOOTLOADER_ADDR`, `0x1FFFEC00` на STM32F030x8 / chipid `0x0440`) на UART0.  
    Аппаратный резерв через IC17: [1.2](#12-аппаратный-вход-в-rom-bootloader-через-ic17-на-стороне-q7). Сценарий Q7: [обновление прошивки](#обновление-прошивки-mcu).
 
 2. **Запись (OTA):** `stm32flash -w firmware.bin -v -g 0x08000000` (`scripts/uart/ota_flash.sh`, `make ota-flash`).
+   Cortex-M0 не имеет `VTOR` — таблица векторов исключений всегда читается по адресу `0x00000000`, куда ROM bootloader на время своей работы маппит system memory (`SYSCFG_CFGR1.MEM_MODE`). Команда `Go` (`-g`) только выставляет `PC`/`SP` и не восстанавливает `MEM_MODE` (и может оставить USART/NVIC IRQ включёнными), поэтому без явного ремапа любое прерывание после `Go` уходило бы в ROM. Фикс — `SystemInit()` в `Core/Src/system_stm32f0xx.c` (до копирования `.data`/`.bss`): disable IRQ → ремап Main Flash → сброс SysTick/NVIC pending. Ремап в `main()` слишком поздний.
 
 3. **Чтение (dump):** `stm32flash -r dump.bin -S 0x08000000:65536` (`scripts/uart/ota_dump.sh`, `make ota-dump`). Отдельной команды `READ_FLASH` в прикладном протоколе нет (Rules_POWER.md #53).
 

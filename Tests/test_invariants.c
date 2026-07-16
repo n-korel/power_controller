@@ -136,21 +136,31 @@ void test_fault_bits(void)
     TEST_ASSERT_EQUAL_HEX16(0x2000, FAULT_SEQ_ABORT);
     TEST_ASSERT_EQUAL_HEX16(0x4000, FAULT_INTERNAL);
     TEST_ASSERT_EQUAL_HEX16(0x8000, FAULT_RESERVED);
+    TEST_ASSERT_EQUAL_HEX16(FAULT_RESERVED, FAULT_BOOT_UNCONFIRMED);
 }
 
-void test_fault_reserved_bit15_must_be_zero_in_flags(void)
+void test_fault_boot_unconfirmed_is_only_bit15(void)
 {
-    /* All active fault flags OR'd must fit into bits 0..14 (0x7FFF),
-       so no valid fault scenario can ever set bit15 in fault_get_flags(). */
-    const uint16_t active_flags =
+    /* Domain/sensor/internal fault bits occupy 0..14. Bit15 is reserved for
+       FAULT_BOOT_UNCONFIRMED and is set only when boot_meta_safe_hold()==1. */
+    const uint16_t domain_flags =
         FAULT_SCALER | FAULT_LCD | FAULT_BACKLIGHT | FAULT_AUDIO |
         FAULT_ETH1 | FAULT_ETH2 | FAULT_TOUCH | FAULT_PGOOD_LOST |
         FAULT_AMP_FAULTZ | FAULT_V24_RANGE | FAULT_V12_RANGE |
         FAULT_V5_RANGE | FAULT_V3V3_RANGE | FAULT_SEQ_ABORT | FAULT_INTERNAL;
 
-    TEST_ASSERT_EQUAL_HEX16(0x7FFFU, active_flags);
-    TEST_ASSERT_EQUAL_HEX16(0x0000U, active_flags & FAULT_RESERVED);
-    TEST_ASSERT_EQUAL_HEX16(0x8000U, FAULT_RESERVED);
+    TEST_ASSERT_EQUAL_HEX16(0x7FFFU, domain_flags);
+    TEST_ASSERT_EQUAL_HEX16(0x0000U, domain_flags & FAULT_BOOT_UNCONFIRMED);
+    TEST_ASSERT_EQUAL_HEX16(0x8000U, FAULT_BOOT_UNCONFIRMED);
+}
+
+void test_boot_meta_flash_constants(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x0800F400U, FLASH_BOOT_META_ADDR);
+    TEST_ASSERT_EQUAL_HEX32(0x424D4554U, FLASH_BOOT_META_MAGIC);
+    TEST_ASSERT_EQUAL_UINT(1U, FLASH_BOOT_META_VERSION);
+    TEST_ASSERT_EQUAL_UINT(3U, BOOT_META_MAX_ATTEMPTS);
+    TEST_ASSERT_EQUAL_UINT(10000U, BOOT_META_CONFIRM_STABLE_MS);
 }
 
 /* ===== Bootloader constants (Rules 10) ===== */
@@ -162,8 +172,8 @@ void test_sram_magic_value(void)
 
 void test_rom_bootloader_address(void)
 {
-    TEST_ASSERT_EQUAL_HEX32(0x1FFFD800, ROM_BOOTLOADER_ADDR);
-    TEST_ASSERT_EQUAL_HEX32(0x1FFFF7FF, ROM_BOOTLOADER_END);
+    TEST_ASSERT_EQUAL_HEX32(0x1FFFEC00, ROM_BOOTLOADER_ADDR);
+    TEST_ASSERT_EQUAL_HEX32(0x1FFFEFFF, ROM_BOOTLOADER_END);
 }
 
 /* ===== Flash calibration constants (Rules 11) ===== */
@@ -330,7 +340,8 @@ int main(void)
     RUN_TEST(test_domain_bits);
     /* Faults */
     RUN_TEST(test_fault_bits);
-    RUN_TEST(test_fault_reserved_bit15_must_be_zero_in_flags);
+    RUN_TEST(test_fault_boot_unconfirmed_is_only_bit15);
+    RUN_TEST(test_boot_meta_flash_constants);
     /* Bootloader */
     RUN_TEST(test_sram_magic_value);
     RUN_TEST(test_rom_bootloader_address);

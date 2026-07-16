@@ -125,12 +125,29 @@ const uint8_t APBPrescTable[8]  = {0, 0, 0, 0, 1, 2, 3, 4};
   */
 void SystemInit(void)
 {
-  /* NOTE :SystemInit(): This function is called at startup just after reset and 
-                         before branch to main program. This call is made inside
-                         the "startup_stm32f0xx.s" file.
-                         User can setups the default system clock (System clock source, PLL Multiplier
-                         and Divider factors, AHB/APBx prescalers and Flash settings).
-   */
+  /* Cortex-M0 has no VTOR: vectors always come from 0x00000000.
+   * ROM USART bootloader maps System memory there (MEM_MODE) and its Go
+   * command only sets PC/SP — it does not restore MEM_MODE or clear IRQs.
+   * Remap must happen here (first C after SP is set), not in main(): any
+   * interrupt during .data/.bss init would otherwise vector into the ROM.
+   * Harmless on a normal cold boot (MEM_MODE already Main Flash). */
+  __disable_irq();
+
+  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+  (void)RCC->APB2ENR;
+
+  SYSCFG->CFGR1 &= ~(SYSCFG_CFGR1_MEM_MODE);
+
+  /* Drop SysTick / NVIC state left armed by the ROM bootloader. */
+  SysTick->CTRL = 0U;
+  SysTick->LOAD = 0U;
+  SysTick->VAL  = 0U;
+  NVIC->ICER[0] = 0xFFFFFFFFu;
+  NVIC->ICPR[0] = 0xFFFFFFFFu;
+
+  __DSB();
+  __ISB();
+  __enable_irq();
 }
 
 /**

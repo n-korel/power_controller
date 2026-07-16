@@ -40,7 +40,7 @@ TESTS = test_crc test_adc_conversion test_protocol_parser \
         test_invariants test_safe_state test_power_sequence \
         test_power_force_off_domains test_audio_sequence test_audio_ctrl_edge_cases \
         test_sus_s3 test_bridge_reset \
-        test_flash_cal test_bootloader test_bootloader_check test_brightness \
+        test_flash_cal test_boot_meta test_bootloader test_bootloader_check test_brightness \
         test_startup_sm test_main_loop_order test_uart_hal_errors test_uart_bootloader_ack \
         test_app_init_order test_set_thresholds
 
@@ -138,6 +138,9 @@ $(BUILD_DIR)/test_bridge_reset: $(TESTS_DIR)/test_bridge_reset.c $(STUBS_SRC) $(
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_flash_cal: $(TESTS_DIR)/test_flash_cal.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
+
+$(BUILD_DIR)/test_boot_meta: $(TESTS_DIR)/test_boot_meta.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(UNITY_DIR) -o $@ $^
 
 $(BUILD_DIR)/test_bootloader: $(TESTS_DIR)/test_bootloader.c $(STUBS_SRC) $(UNITY_SRC) | $(BUILD_DIR)

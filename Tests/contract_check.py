@@ -455,19 +455,23 @@ def parse_ld_memory_region(ld_text: str, name: str) -> tuple[int, int]:
 
 def check_flash_cal_reserve(repo_root: str, defs: dict[str, int]) -> None:
     """
-    Firmware FLASH region must stop before flash_cal page (config.h FLASH_CAL_ADDR).
-    Linker MEMORY FLASH + FLASH_CAL must abut and cover the full device flash.
+    Firmware FLASH → FLASH_BOOT_META → FLASH_CAL must abut and cover device flash.
     """
     ld_path = os.path.join(repo_root, "STM32F030XX_FLASH.ld")
     ld_text = read_text(ld_path)
 
     flash_origin, flash_len = parse_ld_memory_region(ld_text, "FLASH")
+    meta_origin, meta_len = parse_ld_memory_region(ld_text, "FLASH_BOOT_META")
     cal_origin, cal_len = parse_ld_memory_region(ld_text, "FLASH_CAL")
 
     cal_addr = defs.get("FLASH_CAL_ADDR")
     cal_erase = defs.get("FLASH_CAL_ERASE_SIZE")
     cal_valid_start = defs.get("FLASH_CAL_VALID_START")
     cal_valid_end = defs.get("FLASH_CAL_VALID_END")
+    meta_addr = defs.get("FLASH_BOOT_META_ADDR")
+    meta_erase = defs.get("FLASH_BOOT_META_ERASE_SIZE")
+    meta_valid_start = defs.get("FLASH_BOOT_META_VALID_START")
+    meta_valid_end = defs.get("FLASH_BOOT_META_VALID_END")
     if cal_addr is None:
         die("config.h: missing FLASH_CAL_ADDR")
     if cal_erase is None:
@@ -476,11 +480,34 @@ def check_flash_cal_reserve(repo_root: str, defs: dict[str, int]) -> None:
         die("config.h: missing FLASH_CAL_VALID_START")
     if cal_valid_end is None:
         die("config.h: missing FLASH_CAL_VALID_END")
+    if meta_addr is None:
+        die("config.h: missing FLASH_BOOT_META_ADDR")
+    if meta_erase is None:
+        die("config.h: missing FLASH_BOOT_META_ERASE_SIZE")
+    if meta_valid_start is None:
+        die("config.h: missing FLASH_BOOT_META_VALID_START")
+    if meta_valid_end is None:
+        die("config.h: missing FLASH_BOOT_META_VALID_END")
 
     if flash_origin != cal_valid_start:
         die(
             f"linker FLASH ORIGIN {flash_origin:#x} must equal "
             f"FLASH_CAL_VALID_START {cal_valid_start:#x}"
+        )
+    if flash_origin != meta_valid_start:
+        die(
+            f"linker FLASH ORIGIN {flash_origin:#x} must equal "
+            f"FLASH_BOOT_META_VALID_START {meta_valid_start:#x}"
+        )
+    if meta_origin != meta_addr:
+        die(
+            f"linker FLASH_BOOT_META ORIGIN {meta_origin:#x} must equal "
+            f"FLASH_BOOT_META_ADDR {meta_addr:#x}"
+        )
+    if meta_len != meta_erase:
+        die(
+            f"linker FLASH_BOOT_META LENGTH {meta_len} must equal "
+            f"FLASH_BOOT_META_ERASE_SIZE {meta_erase}"
         )
     if cal_origin != cal_addr:
         die(
@@ -492,20 +519,33 @@ def check_flash_cal_reserve(repo_root: str, defs: dict[str, int]) -> None:
             f"linker FLASH_CAL LENGTH {cal_len} must equal "
             f"FLASH_CAL_ERASE_SIZE {cal_erase}"
         )
-    if flash_origin + flash_len != cal_origin:
+    if flash_origin + flash_len != meta_origin:
         die(
             f"linker FLASH end {flash_origin + flash_len:#x} must equal "
-            f"FLASH_CAL ORIGIN {cal_origin:#x} (cal page must not overlap firmware)"
+            f"FLASH_BOOT_META ORIGIN {meta_origin:#x}"
+        )
+    # 1K gap after boot_meta is reserved for future FLASH_THRESH (Feature 2).
+    reserved_gap = 1024
+    if meta_origin + meta_len + reserved_gap != cal_origin:
+        die(
+            f"linker FLASH_BOOT_META end+1K {meta_origin + meta_len + reserved_gap:#x} "
+            f"must equal FLASH_CAL ORIGIN {cal_origin:#x} (reserved thresh gap)"
         )
     if cal_origin + cal_len != cal_valid_end:
         die(
             f"linker FLASH_CAL end {cal_origin + cal_len:#x} must equal "
             f"FLASH_CAL_VALID_END {cal_valid_end:#x}"
         )
-    if flash_len + cal_len != (cal_valid_end - cal_valid_start):
+    if meta_valid_end != cal_valid_end:
         die(
-            f"linker FLASH({flash_len})+FLASH_CAL({cal_len}) must cover "
-            f"device flash ({cal_valid_end - cal_valid_start} bytes)"
+            f"FLASH_BOOT_META_VALID_END {meta_valid_end:#x} must equal "
+            f"FLASH_CAL_VALID_END {cal_valid_end:#x}"
+        )
+    if flash_len + meta_len + reserved_gap + cal_len != (cal_valid_end - cal_valid_start):
+        die(
+            f"linker FLASH({flash_len})+FLASH_BOOT_META({meta_len})+gap({reserved_gap})"
+            f"+FLASH_CAL({cal_len}) must cover device flash "
+            f"({cal_valid_end - cal_valid_start} bytes)"
         )
 
 
@@ -742,9 +782,10 @@ def main() -> int:
         p_pwr  = must_appear_once_in(step_body, "power_manager_process();", "app_step")
         p_flt  = must_appear_once_in(step_body, "fault_manager_process();", "app_step")
         p_btl  = must_appear_once_in(step_body, "bootloader_process();", "app_step")
+        p_bm   = must_appear_once_in(step_body, "boot_meta_process();", "app_step")
 
-        if not (p_uart < p_adc < p_inp < p_pwr < p_flt < p_btl):
-            die("app_step: call order must be uart->adc->input->power->fault->bootloader")
+        if not (p_uart < p_adc < p_inp < p_pwr < p_flt < p_btl < p_bm):
+            die("app_step: call order must be uart->adc->input->power->fault->bootloader->boot_meta")
     else:
         p_uart = must_appear_once_in(body, "uart_protocol_process();", "main.c while(1)")
         p_adc  = must_appear_once_in(body, "adc_service_process();", "main.c while(1)")
@@ -755,6 +796,35 @@ def main() -> int:
 
         if not (p_uart < p_adc < p_inp < p_pwr < p_flt < p_btl < p_iwdg):
             die("main.c while(1): call order must be uart->adc->input->power->fault->bootloader->iwdg")
+
+    # boot_meta_arm_pending must be called exactly once, in bootloader_process before NVIC_SystemReset
+    boot_c = read_text(os.path.join(repo_root, "Services", "bootloader.c"))
+    btl_proc = extract_c_block_after(
+        boot_c,
+        r"^\s*void\s+bootloader_process\s*\(\s*void\s*\)\s*$",
+        "bootloader.c bootloader_process",
+    )
+    arm_hits = list(re.finditer(r"boot_meta_arm_pending\s*\(\s*\)\s*;", btl_proc))
+    if len(arm_hits) != 1:
+        die(f"bootloader_process: expected exactly one boot_meta_arm_pending(); got {len(arm_hits)}")
+    p_arm = arm_hits[0].start()
+    p_reset = btl_proc.find("NVIC_SystemReset(")
+    if p_reset < 0:
+        die("bootloader_process: missing NVIC_SystemReset()")
+    if not (p_arm < p_reset):
+        die("bootloader_process: boot_meta_arm_pending() must occur before NVIC_SystemReset()")
+
+    arm_global = []
+    for d in scan_dirs:
+        for name in os.listdir(d):
+            if not name.endswith(".c"):
+                continue
+            p = os.path.join(d, name)
+            t = read_text(p)
+            for m in re.finditer(r"boot_meta_arm_pending\s*\(\s*\)\s*;", t):
+                arm_global.append(p)
+    if len(arm_global) != 1:
+        die(f"expected exactly one boot_meta_arm_pending() call site, got {len(arm_global)}: {arm_global}")
 
     # ADC DMA start contract (Rules invariant #30-#33):
     # must start DMA with ADC_CHANNEL_COUNT and adc_get_dma_buf()

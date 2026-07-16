@@ -7,6 +7,7 @@
 #include "power_manager.h"
 #include "fault_manager.h"
 #include "flash_cal.h"
+#include "boot_meta.h"
 #include "bootloader.h"
 #include "version_gen.h"
 #include <limits.h>
@@ -358,6 +359,8 @@ static void handle_set_brightness(void)
 
 static void handle_reset_fault(void)
 {
+    /* Explicit OTA image confirm (also clears pending before safe-hold). */
+    boot_meta_confirm();
     fault_clear_flags();
     uart_send_ack(CMD_RESET_FAULT, 0);
 }
@@ -450,9 +453,10 @@ static void handle_set_thresholds(void)
 
 static void handle_bootloader_enter(void)
 {
-    power_safe_state();
-    uart_send_ack(CMD_BOOTLOADER_ENTER, 0);
-    bootloader_schedule();
+    /* power_safe_state() + ACK + bootloader_schedule() now run from
+     * bootloader_process() once the graceful shutdown it kicks off here
+     * reaches power_is_idle() — see bootloader.c. */
+    bootloader_enter_request();
 }
 
 static void handle_calibrate_offset(void)

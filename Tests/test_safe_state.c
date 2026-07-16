@@ -103,6 +103,72 @@ void test_safe_state_resets_sequencers(void)
     TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
 }
 
+/* ===== power_graceful_shutdown_begin() — OTA soft shutdown ===== */
+
+void test_graceful_shutdown_starts_dn_when_display_on(void)
+{
+    power_state = (uint8_t)(DOM_SCALER | DOM_LCD | DOM_BACKLIGHT | DOM_ETH1 | DOM_ETH2);
+    dseq = DSEQ_IDLE;
+    aseq = ASEQ_IDLE;
+
+    power_graceful_shutdown_begin();
+
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
+    TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
+    TEST_ASSERT_EQUAL_UINT8(0, power_is_idle());
+}
+
+void test_graceful_shutdown_aborts_up_into_dn(void)
+{
+    power_state = (uint8_t)(DOM_SCALER | DOM_ETH1 | DOM_ETH2);
+    dseq = DSEQ_UP_WAIT_LCD;
+    aseq = ASEQ_IDLE;
+
+    power_graceful_shutdown_begin();
+
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_PWM_ZERO, dseq);
+}
+
+void test_graceful_shutdown_leaves_running_dn_alone(void)
+{
+    power_state = (uint8_t)(DOM_SCALER | DOM_LCD | DOM_ETH1 | DOM_ETH2);
+    dseq = DSEQ_DN_WAIT_BL;
+    aseq = ASEQ_IDLE;
+
+    power_graceful_shutdown_begin();
+
+    TEST_ASSERT_EQUAL_INT(DSEQ_DN_WAIT_BL, dseq);
+}
+
+void test_graceful_shutdown_starts_audio_off_and_cuts_touch(void)
+{
+    power_state = (uint8_t)(DOM_AUDIO | DOM_TOUCH | DOM_ETH1 | DOM_ETH2);
+    dseq = DSEQ_IDLE;
+    aseq = ASEQ_IDLE;
+    hal_stub_reset();
+
+    power_graceful_shutdown_begin();
+
+    TEST_ASSERT_EQUAL_INT(ASEQ_OFF_MUTE, aseq);
+    TEST_ASSERT_EQUAL_HEX8(0, power_state & DOM_TOUCH);
+    GPIO_PinState st;
+    TEST_ASSERT_TRUE(pth_last_gpio_write(POWER_TOUCH_GPIO_Port, POWER_TOUCH_Pin, &st));
+    TEST_ASSERT_EQUAL(GPIO_PIN_RESET, st);
+}
+
+void test_graceful_shutdown_noop_when_already_safe(void)
+{
+    power_state = (uint8_t)(DOM_ETH1 | DOM_ETH2);
+    dseq = DSEQ_IDLE;
+    aseq = ASEQ_IDLE;
+
+    power_graceful_shutdown_begin();
+
+    TEST_ASSERT_EQUAL_INT(DSEQ_IDLE, dseq);
+    TEST_ASSERT_EQUAL_INT(ASEQ_IDLE, aseq);
+    TEST_ASSERT_EQUAL_UINT8(1, power_is_idle());
+}
+
 /* ===== power_emergency_display_off() — Rules §6.2 ===== */
 
 void test_emergency_display_off_sets_all_display_off(void)
@@ -174,6 +240,11 @@ int main(void)
     RUN_TEST(test_safe_state_rst_ch7511b_low);
     RUN_TEST(test_safe_state_od_pins_released);
     RUN_TEST(test_safe_state_resets_sequencers);
+    RUN_TEST(test_graceful_shutdown_starts_dn_when_display_on);
+    RUN_TEST(test_graceful_shutdown_aborts_up_into_dn);
+    RUN_TEST(test_graceful_shutdown_leaves_running_dn_alone);
+    RUN_TEST(test_graceful_shutdown_starts_audio_off_and_cuts_touch);
+    RUN_TEST(test_graceful_shutdown_noop_when_already_safe);
     RUN_TEST(test_emergency_display_off_sets_all_display_off);
     RUN_TEST(test_emergency_off_clears_only_display_bits);
     RUN_TEST(test_emergency_off_does_not_touch_amp_or_od);

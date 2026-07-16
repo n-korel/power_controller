@@ -461,3 +461,33 @@ fault_restore_i_audio_lr_max() {
   fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-800}"
 }
 
+# Display to state=0x07, then count× GET_STATUS with gap between polls.
+# Used by 16 (protocol stress) and 17 (IWDG keep-alive); pass_label/detail differ only in wording.
+# Args: count gap_sec pass_label pass_detail [info_suffix] [no_response_extra]
+periph_stress_get_status_under_display_load() {
+  local count=$1
+  local gap=$2
+  local pass_label=$3
+  local pass_detail=$4
+  local info_suffix=${5:-}
+  local no_resp_extra=${6:-}
+  local gs i hex ok=0
+  local info_msg
+
+  periph_prepare_zero_load || die "prepare failed"
+  periph_display_scaler_lcd_on >/dev/null || die "need SCALER+LCD for load stress"
+  gs="$(periph_display_backlight_on)" || die "need BACKLIGHT for state=0x07"
+  expect_state_bits "$gs" 0x07 "$PERIPH_PREP_NONDISPLAY_MASK_HEX" || die "expected state=0x07"
+
+  info_msg="${count}x GET_STATUS @ state=0x07, gap ${gap}s"
+  [[ -n "$info_suffix" ]] && info_msg+=" ${info_suffix}"
+  log_info "$info_msg"
+  for i in $(seq 1 "$count"); do
+    hex="$(cmd_get_status)" || die "iteration $i: no response${no_resp_extra}"
+    validate_get_status_hex "$hex" || die "iteration $i: invalid frame"
+    ok=$((ok + 1))
+    sleep "$gap"
+  done
+  log_pass "${pass_label}: ${ok}/${count} ${pass_detail}"
+}
+

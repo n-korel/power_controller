@@ -15,7 +15,8 @@ typedef enum {
     CALL_INPUT_PROCESS,
     CALL_POWER_PROCESS,
     CALL_FAULT_PROCESS,
-    CALL_BOOTLOADER_PROCESS
+    CALL_BOOTLOADER_PROCESS,
+    CALL_BOOT_META_PROCESS
 } app_call_id_t;
 
 static app_call_id_t app_call_log[32];
@@ -43,6 +44,7 @@ void input_service_process(void) { app_log(CALL_INPUT_PROCESS); }
 void power_manager_process(void) { app_log(CALL_POWER_PROCESS); }
 void fault_manager_process(void) { app_log(CALL_FAULT_PROCESS); }
 void bootloader_process(void)    { app_log(CALL_BOOTLOADER_PROCESS); }
+void boot_meta_process(void)     { app_log(CALL_BOOT_META_PROCESS); }
 uint16_t fault_get_flags(void)   { return injected_fault_flags; }
 
 /* Ensure app_init() dependencies are link-satisfied (not under test here). */
@@ -52,6 +54,8 @@ void input_service_init(void) {}
 void power_manager_init(void) {}
 void fault_manager_init(void) {}
 void flash_cal_load(void) {}
+void boot_meta_init(void) {}
+uint8_t boot_meta_safe_hold(void) { return 0; }
 void uart_protocol_init(void) {}
 void power_startup_begin(void) {}
 void fault_set_flag(uint16_t flag) { (void)flag; }
@@ -91,7 +95,8 @@ void test_app_step_runtime_order_matches_contract(void)
         CALL_INPUT_PROCESS,
         CALL_POWER_PROCESS,
         CALL_FAULT_PROCESS,
-        CALL_BOOTLOADER_PROCESS
+        CALL_BOOTLOADER_PROCESS,
+        CALL_BOOT_META_PROCESS
     };
     assert_app_order(exp, (uint32_t)(sizeof(exp) / sizeof(exp[0])));
 
@@ -113,7 +118,8 @@ void test_fault_does_not_block_bootloader_process(void)
         CALL_INPUT_PROCESS,
         CALL_POWER_PROCESS,
         CALL_FAULT_PROCESS,
-        CALL_BOOTLOADER_PROCESS
+        CALL_BOOTLOADER_PROCESS,
+        CALL_BOOT_META_PROCESS
     };
     assert_app_order(exp, (uint32_t)(sizeof(exp) / sizeof(exp[0])));
 }

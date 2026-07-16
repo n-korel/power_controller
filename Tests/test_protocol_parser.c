@@ -22,10 +22,10 @@ static uint8_t  mock_power_ctrl_called;
 static uint16_t mock_set_brightness_pwm;
 static uint8_t  mock_set_brightness_called;
 static uint8_t  mock_fault_clear_called;
+static uint8_t  mock_boot_meta_confirm_called;
 static uint8_t  mock_power_reset_bridge_called;
 static uint8_t  mock_power_reset_bridge_result;
-static uint8_t  mock_power_safe_state_called;
-static uint8_t  mock_bootloader_schedule_called;
+static uint8_t  mock_bootloader_enter_request_called;
 static uint8_t  mock_flash_cal_calibrate_result;
 static struct {
     uint16_t min_val;
@@ -70,9 +70,9 @@ void     fault_set_threshold(uint8_t i, uint16_t mn, uint16_t mx)
         mock_thresh_count++;
     }
 }
-void     power_safe_state(void)          { mock_power_safe_state_called = 1; }
-void     bootloader_schedule(void)       { mock_bootloader_schedule_called = 1; }
+void     bootloader_enter_request(void)  { mock_bootloader_enter_request_called = 1; }
 uint8_t  flash_cal_calibrate(void)       { return mock_flash_cal_calibrate_result; }
+void     boot_meta_confirm(void)         { mock_boot_meta_confirm_called = 1; }
 uint16_t adc_get_raw_avg(uint8_t idx)    { (void)idx; return 0; }
 
 volatile uint32_t systick_ms;
@@ -195,10 +195,10 @@ void setUp(void)
     mock_set_brightness_pwm    = 0xFFFF;
     mock_set_brightness_called = 0;
     mock_fault_clear_called       = 0;
+    mock_boot_meta_confirm_called = 0;
     mock_power_reset_bridge_called = 0;
     mock_power_reset_bridge_result  = 0;
-    mock_power_safe_state_called   = 0;
-    mock_bootloader_schedule_called = 0;
+    mock_bootloader_enter_request_called = 0;
     mock_flash_cal_calibrate_result = 0;
     mock_thresh_count = 0;
     memset(mock_thresh, 0, sizeof(mock_thresh));
@@ -787,11 +787,26 @@ void test_dispatch_reset_fault_clears_flags_and_returns_ack(void)
     uart_protocol_process();
 
     TEST_ASSERT_EQUAL_UINT8(1, mock_fault_clear_called);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_boot_meta_confirm_called);
     TEST_ASSERT_EQUAL_HEX8(PROTO_STX,       tx_buf[0]);
     TEST_ASSERT_EQUAL_HEX8(CMD_RESET_FAULT, tx_buf[1]);
     TEST_ASSERT_EQUAL_UINT8(1,              tx_buf[2]);
     TEST_ASSERT_EQUAL_HEX8(0x00,            tx_buf[3]);
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX,       tx_buf[5]);
+}
+
+void test_dispatch_reset_fault_confirms_boot_meta(void)
+{
+    mock_fault_flags = FAULT_BOOT_UNCONFIRMED;
+    uint8_t pkt[8];
+    uint16_t n = build_packet(pkt, CMD_RESET_FAULT, NULL, 0);
+    feed_bytes(pkt, n);
+    uart_protocol_process();
+
+    TEST_ASSERT_EQUAL_UINT8(1, mock_boot_meta_confirm_called);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_fault_clear_called);
+    TEST_ASSERT_EQUAL_HEX8(CMD_RESET_FAULT, tx_buf[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x00,            tx_buf[3]);
 }
 
 void test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge(void)
@@ -866,17 +881,18 @@ void test_dispatch_get_version_layout_13_bytes(void)
     TEST_ASSERT_EQUAL_HEX8(PROTO_ETX, tx_buf[3 + GET_VERSION_DATA_LEN + 1]);
 }
 
-void test_dispatch_bootloader_enter_safe_state_acks_and_schedules(void)
+void test_dispatch_bootloader_enter_starts_graceful_shutdown(void)
 {
+    /* power_safe_state()/ACK/bootloader_schedule() are no longer synchronous
+     * here — dispatch only kicks off the graceful shutdown gate; the rest
+     * runs later from bootloader_process() once idle (Tests/test_bootloader.c). */
     uint8_t pkt[8];
     uint16_t n = build_packet(pkt, CMD_BOOTLOADER_ENTER, NULL, 0);
     feed_bytes(pkt, n);
     uart_protocol_process();
 
-    TEST_ASSERT_EQUAL_UINT8(1, mock_power_safe_state_called);
-    TEST_ASSERT_EQUAL_HEX8(CMD_BOOTLOADER_ENTER, tx_buf[1]);
-    TEST_ASSERT_EQUAL_HEX8(0x00, tx_buf[3]);
-    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_schedule_called);
+    TEST_ASSERT_EQUAL_UINT8(1, mock_bootloader_enter_request_called);
+    TEST_ASSERT_EQUAL_UINT32(0, hal_count_calls(HAL_CALL_UART_TRANSMIT_IT));
 }
 
 /* ===== Frame layout (Rules §4.2) ===== */
@@ -1102,11 +1118,12 @@ int main(void)
     RUN_TEST(test_dispatch_set_thresholds_rejects_truncated_payload);
     RUN_TEST(test_dispatch_set_thresholds_rejects_extra_bytes);
     RUN_TEST(test_dispatch_reset_fault_clears_flags_and_returns_ack);
+    RUN_TEST(test_dispatch_reset_fault_confirms_boot_meta);
     RUN_TEST(test_dispatch_reset_bridge_returns_ack_and_calls_power_reset_bridge);
     RUN_TEST(test_dispatch_reset_bridge_forwards_rejection_status);
     RUN_TEST(test_dispatch_calibrate_offset_forwards_result_code);
     RUN_TEST(test_dispatch_get_version_layout_13_bytes);
-    RUN_TEST(test_dispatch_bootloader_enter_safe_state_acks_and_schedules);
+    RUN_TEST(test_dispatch_bootloader_enter_starts_graceful_shutdown);
     RUN_TEST(test_send_response_frame_layout);
     RUN_TEST(test_send_ack_frame_is_fixed_6_bytes);
     RUN_TEST(test_ping_response_data_is_single_0xAA_byte);
