@@ -41,6 +41,7 @@ volatile uint32_t systick_ms;
 
 #define SCALER_UP_MS  (SEQ_DELAY_SCALER_ON + SEQ_VERIFY_TIMEOUT + 30U)
 #define AUDIO_ON_MS   (AUDIO_SDZ_DELAY_MS + AUDIO_MUTE_DELAY_MS + 5U)
+#define AUDIO_ARMED_MS (AUDIO_ON_MS + AUDIO_I_GRACE_MS + 5U)
 
 typedef struct {
     uint16_t fault_flag;
@@ -269,7 +270,11 @@ void test_audio_overcurrent_fault_safe_state_then_scaler_only_recovery(void)
     mock_faultz = 1;
     systick_ms  = 1000;
 
-    power_state = DOM_AUDIO;
+    TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(DOM_AUDIO, DOM_AUDIO));
+    tick_ms(AUDIO_ARMED_MS);
+    TEST_ASSERT_TRUE(power_state & DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(1, power_audio_overcurrent_armed());
+
     mock_current_ma[3] = (int16_t)THRESH_I_AUDIO_LR_MAX + 1;
 
     for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) {

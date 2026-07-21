@@ -187,13 +187,12 @@ void test_calibrate_roundtrip(void)
 
     flash_cal_load();
 
-    const uint16_t bl_default = (uint16_t)(
-        (uint32_t)CURRENT_VOFFSET_MV_DEFAULT * ADC_RESOLUTION / ADC_VREF_MV);
-
     for (uint8_t i = 0; i < 5; i++) {
         TEST_ASSERT_EQUAL_UINT8(1, offset_called[i]);
 #if (ENABLE_BL_CURRENT_SENSOR == 0U)
         if (i == 1U) {
+            const uint16_t bl_default = (uint16_t)(
+                (uint32_t)CURRENT_VOFFSET_MV_DEFAULT * ADC_RESOLUTION / ADC_VREF_MV);
             TEST_ASSERT_EQUAL_UINT16(bl_default, applied_offset[i]);
             continue;
         }

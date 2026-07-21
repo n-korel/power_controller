@@ -159,9 +159,9 @@ void fault_manager_process(void)
         }
     }
 
-    /* Audio L/R current */
+    /* Audio L/R current — only after unmute + AUDIO_I_GRACE_MS (startup spike). */
     pstate = power_get_state();
-    if (adc_new && (pstate & DOM_AUDIO)) {
+    if (adc_new && (pstate & DOM_AUDIO) && power_audio_overcurrent_armed()) {
         for (uint8_t ch = 3; ch < 5; ch++) {
             if (current_exceeds_threshold(ch)) {
                 i_consec[ch]++;
@@ -173,11 +173,14 @@ void fault_manager_process(void)
                 i_consec[ch] = 0;
             }
         }
+    } else {
+        i_consec[3] = 0;
+        i_consec[4] = 0;
     }
 
-    /* --- Faultz input (active LOW from TPA3118, only when AUDIO on) --- */
+    /* --- Faultz input (active LOW from TPA3118; same arm window as I_AUDIO) --- */
     pstate = power_get_state();
-    if (pstate & DOM_AUDIO) {
+    if ((pstate & DOM_AUDIO) && power_audio_overcurrent_armed()) {
         if (!input_get_faultz()) {
             faultz_consec++;
             if (faultz_consec >= FAULT_CONFIRM_COUNT) {

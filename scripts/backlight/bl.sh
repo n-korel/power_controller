@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# POWER_Controller backlight control over USB-UART (115200 8N1).
+# POWER_Controller_BNT backlight control over USB-UART (115200 8N1).
 #
 # Examples:
 #   UART_DEVICE=/dev/ttyACM0 ./bl.sh ping

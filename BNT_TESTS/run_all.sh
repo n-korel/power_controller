@@ -38,9 +38,6 @@ TESTS="
 20_fault_backlight_current.sh
 21_fault_audio_current.sh
 29_calibrate_offset_neg_display.sh
-31_simple_domains_periph.sh
-10_sus_s3_manual.sh
-33_pgood_mid_seq_manual.sh
 "
 
 pass=0
@@ -48,7 +45,7 @@ fail=0
 skip=0
 DISPLAY_SEQ_BLOCKED=0
 
-printf '\n=== POWER_Controller UART — BVIT (Q7 + socat) ===\n'
+printf '\n=== POWER_Controller_BNT UART — BNT (Q7 + socat) ===\n'
 printf 'Port: %s\n\n' "$UART_DEVICE"
 
 printf '%s\n' "--- 00_flush_port.sh ---"

@@ -1,4 +1,4 @@
-## POWER_Controller — Hard Contract (FROZEN)
+## POWER_Controller_BNT — Hard Contract (FROZEN)
 
 Этот файл — **единственный источник правды** для неизменяемых инвариантов проекта.
 

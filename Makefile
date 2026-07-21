@@ -13,7 +13,7 @@
 ######################################
 # target
 ######################################
-TARGET = POWER_Controller
+TARGET = POWER_Controller_BNT
 
 # Use bash so `set -o pipefail` works in lint recipes below: we pipe
 # clang-tidy through a filter and must not lose the real exit code.

@@ -18,7 +18,7 @@ OTA_DUMP_SIZE="${OTA_DUMP_SIZE:-65536}"
 
 usage() {
   cat <<'EOF'
-Dump POWER_Controller flash over UART0 (BOOTLOADER_ENTER + stm32flash -r).
+Dump POWER_Controller_BNT flash over UART0 (BOOTLOADER_ENTER + stm32flash -r).
 
 Usage:
   ota_dump.sh <output.bin>

@@ -10,7 +10,7 @@ Control **BACKLIGHT** and brightness (**SET_BRIGHTNESS**) via USB-UART TTL 3.3 V
 ## Quick start
 
 ```bash
-cd /path/to/POWER_Controller
+cd /path/to/POWER_Controller_BNT
 
 # Port (default /dev/ttyUSB0)
 export UART_DEVICE=/dev/ttyUSB0

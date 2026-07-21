@@ -14,6 +14,7 @@ static int16_t  mock_current_ma[5];
 static uint8_t  mock_pgood = 1;
 static uint8_t  mock_faultz = 1;
 static uint8_t  mock_power_state;
+static uint8_t  mock_audio_oc_armed = 1;
 static uint16_t mock_force_off_called_with;
 static uint8_t  mock_force_off_call_count;
 static uint8_t  mock_safe_state_call_count;
@@ -24,6 +25,7 @@ uint8_t  adc_service_consume_new_sample(void) { return 1; }
 uint8_t  input_get_pgood(void)           { return mock_pgood; }
 uint8_t  input_get_faultz(void)          { return mock_faultz; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
+uint8_t  power_audio_overcurrent_armed(void) { return mock_audio_oc_armed; }
 
 void power_force_off_domains(uint16_t domain_mask)
 {
@@ -68,6 +70,7 @@ void setUp(void)
     mock_pgood = 1;
     mock_faultz = 1;
     mock_power_state = 0;
+    mock_audio_oc_armed = 1;
     set_v_nominal();
     set_i_nominal();
 }

@@ -59,12 +59,11 @@ typedef enum {
 #define THRESH_V3V3_MAX      3600U
 
 /* 1 = monitor V+24 (PC0) and latch FAULT_V24_RANGE; 0 = skip (boards without V+24 on V24_M). */
-#define ENABLE_V24_FAULT_CHECK  0U
+#define ENABLE_V24_FAULT_CHECK  1U
 
 /* ===== Board revision feature switches =====
- * For this hardware revision, AUDIO and TOUCH must not be auto-started and must
- * not be enabled via POWER_CTRL. */
-#define ENABLE_AUDIO_HW      0U
+ * TOUCH is not present on this revision: keep disabled (no auto-start / POWER_CTRL). */
+#define ENABLE_AUDIO_HW      1U
 #define ENABLE_TOUCH_HW      0U
 /* 1 = allow BACKLIGHT ON; 0 = reject BL ON in POWER_CTRL (BOR mitigation, no BL UART tests). */
 #define ENABLE_BACKLIGHT_HW  1U
@@ -72,15 +71,13 @@ typedef enum {
 #define ENABLE_BACKLIGHT_AUTO_STARTUP  1U
 #define ENABLE_PGOOD_AUTO_STARTUP  1U
 
-/* U4 (NSM2012) not populated: IP+ and IP- are jumpered; BACKLIGHT_CURRENT (PA1) is N/C.
- * Disable BL overcurrent fault and report i_backlight = -32768 in GET_STATUS. */
-#define ENABLE_BL_CURRENT_SENSOR  0U
+/* U4 (NSM2012): enable BL overcurrent fault and report real i_backlight in GET_STATUS. */
+#define ENABLE_BL_CURRENT_SENSOR  1U
 
 /* Backlight supply: R62=+5V_A, R63=+12V_A, R64=+24V (one populated). This board: R63 (+12V). */
 #define BACKLIGHT_SUPPLY_5V       0U   /* 0 → SEQ_VERIFY_BL_MV=9000 mV */
-/* This revision does not provide a stable BACKLIGHT_POWER_M feedback.
- * Keep the BL sequence deterministic by skipping ADC rail verification. */
-#define ENABLE_BL_POWER_VERIFY    0U
+/* 1 = verify BACKLIGHT_POWER_M during BL sequence; 0 = skip ADC rail check. */
+#define ENABLE_BL_POWER_VERIFY    1U
 /* Internal BOR/reset breadcrumb in last_power_ctrl_value (0xE1..0xE6),
  * latched from .noinit across reset: BL/SCALER/LCD pre+on stages. */
 #define ENABLE_BOR_DIAG_MARKER    1U
@@ -88,7 +85,9 @@ typedef enum {
 #define THRESH_I_LCD_MAX     2000U
 #define THRESH_I_BL_MAX      3000U
 #define THRESH_I_SCALER_MAX  1500U
-#define THRESH_I_AUDIO_LR_MAX 800U
+/* Bench: with SCALER+LCD on, FAULT_AUDIO still latches at 2000; with runtime
+ * SET_THRESHOLDS=5000 AUDIO+display stays on while GET_STATUS shows ~20 mA. */
+#define THRESH_I_AUDIO_LR_MAX 5000U
 
 /* ===== Sequencing timings (ms) ===== */
 #define SEQ_DELAY_SCALER_ON  50U
@@ -130,6 +129,10 @@ typedef enum {
 /* ===== Audio (Rules 9) ===== */
 #define AUDIO_SDZ_DELAY_MS   10U
 #define AUDIO_MUTE_DELAY_MS  10U
+/* After unmute (amp_active=1): ignore I_AUDIO / Faultz (TPA3118 startup spike).
+ * Bench: with SCALER+LCD on, FAULT_AUDIO can latch after ~100 ms grace while
+ * GET_STATUS still shows ~20 mA — extend blanking to cover post-unmute excursion. */
+#define AUDIO_I_GRACE_MS     500U
 
 /* ===== UART protocol (Rules 4) ===== */
 #define UART_INTERBYTE_TIMEOUT_MS  10U

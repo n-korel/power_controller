@@ -1,11 +1,11 @@
 #!/bin/sh
 # OTA pending-confirm: reflash → сразу RESET_FAULT → образ подтверждён.
 #
-# Semi-manual / OTA: нужен stm32flash. Не входит в run_all.sh.
+# Semi-manual / OTA: нужен stm32flash (+ gpioset/IC17 на Q7). Не входит в run_all.sh.
 # Usage on Q7:
-#   scp build/POWER_Controller.bin root@q7:/tmp/
-#   FW_BIN=/tmp/POWER_Controller.bin UART_DEVICE=/dev/ttyS0 \
-#     OTA_NRST_CMD='your-ic17-nrst.sh' ./34_ota_confirm_reset_fault.sh
+#   scp build/POWER_Controller_BNT.bin root@q7:/opt/BNT_STM32/
+#   cd /opt/BNT_STM32/BNT_TESTS
+#   FW_BIN=/opt/BNT_STM32/POWER_Controller_BNT.bin ./34_ota_confirm_reset_fault.sh
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib.sh
@@ -36,12 +36,8 @@ expect_ack_status "$hex" 0 || die "RESET_FAULT expected status=0"
 gs="$(cmd_get_status)" || die "no GET_STATUS"
 expect_fault_flags "$gs" "0x0000" || die "expected fault_flags=0 after RESET_FAULT confirm"
 
-# BOOTLOADER_ENTER would re-arm pending — use NRST-only reboot if available.
-if [ -n "${OTA_NRST_CMD:-}" ]; then
-  ota_nrst_reboot "post-confirm NRST"
-  gs="$(cmd_get_status)" || die "no GET_STATUS after NRST"
-  expect_fault_flags "$gs" "0x0000" || die "fault_flags must stay 0 after confirmed reboot"
-  log_pass "OTA confirm via RESET_FAULT survived NRST"
-else
-  log_pass "OTA confirm via RESET_FAULT (set OTA_NRST_CMD to also verify across reboot)"
-fi
+# BOOTLOADER_ENTER would re-arm pending — NRST-only (built-in IC17 or OTA_NRST_CMD).
+ota_nrst_reboot "post-confirm NRST"
+gs="$(cmd_get_status)" || die "no GET_STATUS after NRST"
+expect_fault_flags "$gs" "0x0000" || die "fault_flags must stay 0 after confirmed reboot"
+log_pass "OTA confirm via RESET_FAULT survived NRST"

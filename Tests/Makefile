@@ -1,5 +1,5 @@
 # ============================================================
-# Host unit tests for POWER_Controller
+# Host unit tests for POWER_Controller_BNT
 # Requires: gcc (host), wget/curl (for Unity download)
 # Usage:
 #   make          — build and run all tests

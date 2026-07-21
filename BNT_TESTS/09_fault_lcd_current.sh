@@ -16,9 +16,12 @@ sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 
 rc=0
 hex="$(periph_fault_trap_i_ma "$gs" i_lcd fault_set_i_lcd_max_ma)" || rc=$?
-if [ "$rc" -eq 2 ]; then exit 0; fi
+if [ "$rc" -eq 2 ]; then
+  log_skip "I_LCD fault trap: cannot place trap below measured load"
+  exit 0
+fi
 [ "$rc" -eq 0 ] || die "SET_THRESHOLDS trap failed (check i_lcd load)"
-expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
+expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00 (got $(hex_byte "$hex" 3) hex=$hex)"
 sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
 
 gs="$(periph_fault_wait_latched "${FAULT_LCD_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \

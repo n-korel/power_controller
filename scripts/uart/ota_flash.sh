@@ -2,7 +2,7 @@
 # OTA: BOOTLOADER_ENTER → [optional dump] → stm32flash → uart_wait_mcu_ready
 #
 # Usage:
-#   UART_DEVICE=/dev/ttyUSB0 ./ota_flash.sh build/POWER_Controller.bin
+#   UART_DEVICE=/dev/ttyUSB0 ./ota_flash.sh build/POWER_Controller_BNT.bin
 #   make ota-flash UART_DEVICE=/dev/ttyACM0
 #   OTA_BACKUP=1 make ota-flash
 #   OTA_BACKUP=1 OTA_BACKUP_PATH=/tmp/before.bin make ota-flash
@@ -22,7 +22,7 @@ OTA_BACKUP_PATH="${OTA_BACKUP_PATH:-}"
 
 usage() {
   cat <<'EOF'
-Flash POWER_Controller firmware over UART0 (BOOTLOADER_ENTER + stm32flash).
+Flash POWER_Controller_BNT firmware over UART0 (BOOTLOADER_ENTER + stm32flash).
 
 Usage:
   ota_flash.sh <firmware.bin>

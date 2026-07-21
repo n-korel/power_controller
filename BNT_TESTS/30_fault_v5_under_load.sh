@@ -14,8 +14,8 @@ gs="$(cmd_get_status)" || die "no GET_STATUS"
 v5="$(parse_get_status_hex "$gs" | awk -F= '/^v5=/{print $2}')"
 log_info "trap V5 under load: v5=${v5} mV, thresholds ${FAULT_V5_TRAP_MIN_MV}..${FAULT_V5_TRAP_MAX_MV} mV"
 
-hex="$(fault_trigger_v5_range)" || die "SET_THRESHOLDS trap: no response"
-expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
+hex="$(fault_trigger_v5_range)" || die "SET_THRESHOLDS trap: no response / NACK after retries"
+expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00 (got $(hex_byte "$hex" 3) hex=$hex)"
 
 gs="$(periph_fault_wait_latched "${FAULT_V5_RANGE_FLAG}" "${FAULT_WAIT_TRIES_VOLT:-30}")" \
   || die "expected FAULT_V5_RANGE (${FAULT_V5_RANGE_FLAG})"

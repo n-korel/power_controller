@@ -1,0 +1,79 @@
+---
+# clang-tidy configuration for POWER_Controller_BNT (STM32F030R8T6)
+# Scope: user code only (Core/Src, Services, Protocol, Config, Tests)
+# HAL/CMSIS headers are included but NOT analyzed (HeaderFilterRegex below).
+#
+# performance-no-int-to-ptr is disabled globally: STM32 HAL/CMSIS define every
+# peripheral as ((TypeDef*) BASE) and these macros expand into .c files
+# (HeaderFilterRegex filters only findings inside .h). Bare-metal MMIO access
+# through fixed addresses is the only possible form on Cortex-M.
+#
+# bugprone-suspicious-include is disabled: host-side unit tests (Tests/*)
+# intentionally include .c files to exercise static (file-local) functions.
+# This pattern never appears in firmware user code.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-switch-missing-default-case,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err34-c,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-unused-parameters,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-header-include-cycle,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-braces-around-statements,
+  -readability-isolate-declaration,
+  -readability-else-after-return,
+  -readability-implicit-bool-conversion,
+  -readability-redundant-casting,
+  -readability-avoid-nested-conditional-operator,
+  -performance-no-int-to-ptr,
+  -bugprone-suspicious-include
+
+# Analyze headers ONLY inside our own modules. HAL/CMSIS is ignored.
+HeaderFilterRegex: '^.*/(Core/Src|Services|Protocol|Config|Tests)/.*\.(h|c)$'
+
+# Note: system-headers is suppressed via the CLI flag --system-headers=false
+# (see Makefile: CLANG_TIDY_FLAGS). The equivalent YAML key `SystemHeaders`
+# only exists from LLVM 18+, and adding it here breaks .clang-tidy parsing
+# on LLVM 14 (Ubuntu 22.04 default), which silently disables the whole
+# config and falls back to default checkers. Keep it CLI-only.
+
+FormatStyle: none
+WarningsAsErrors: ''
+
+CheckOptions:
+  - key:   readability-function-size.LineThreshold
+    value: 250
+  - key:   readability-function-size.StatementThreshold
+    value: 200
+  - key:   readability-function-size.BranchThreshold
+    value: 40
+  - key:   readability-function-size.ParameterThreshold
+    value: 7
+  - key:   bugprone-argument-comment.StrictMode
+    value: '0'
+  - key:   bugprone-assert-side-effect.AssertMacros
+    value: 'assert,TEST_ASSERT,TEST_ASSERT_TRUE,TEST_ASSERT_FALSE'
+  - key:   readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key:   readability-identifier-naming.TypedefSuffix
+    value: _t
+  - key:   readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+...

@@ -18,3 +18,13 @@
 
 .DS_Store
 Thumbs.db
+
+Rules_POWER.md
+
+POWER_Controller_BNT.md
+Tests/build/
+
+# Lint artifacts
+cppcheck-build-dir/
+compile_commands.json
+.cache/clangd/

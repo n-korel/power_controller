@@ -19,13 +19,22 @@ periph_display_scaler_lcd_on >/dev/null || die "need display base before AUDIO"
 log_info "POWER_CTRL AUDIO ON"
 hex="$(cmd_power_ctrl 0x0008 0x0008)" || die "no ACK (AUDIO ON)"
 expect_ack_status "$hex" 0 || die "AUDIO ON: expected status=0x00"
-sleep "${AUDIO_SEQ_WAIT_SEC:-0.25}"
+sleep "${AUDIO_SEQ_WAIT_SEC:-0.60}"
 gs="$(cmd_get_status)" || die "no GET_STATUS after AUDIO ON"
-expect_state_bits "$gs" 0x0b "$PERIPH_PREP_NONDISPLAY_MASK_HEX" || die "expected AUDIO+SCALER+LCD bits"
+# Clear-mask must NOT include DOM_AUDIO (0x08): PERIPH_PREP_NONDISPLAY=0x48 does.
+if ! expect_state_bits "$gs" 0x0b 0x40; then
+  periph_log_status "$gs" "AUDIO ON failed"
+  die "expected AUDIO+SCALER+LCD bits (TOUCH clear)"
+fi
 sleep 0.2
 
-log_info "trap I_AUDIO_L/R max=${THRESH_I_AUDIO_TRAP_MA} mA"
-hex="$(fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_TRAP_MA}")" || die "SET_THRESHOLDS trap: no response"
+rc=0
+hex="$(periph_fault_trap_i_ma "$gs" i_audio_l fault_set_i_audio_lr_max_ma)" || rc=$?
+if [[ "$rc" -ne 0 ]]; then
+  rc=0
+  hex="$(periph_fault_trap_i_ma "$gs" i_audio_r fault_set_i_audio_lr_max_ma)" || rc=$?
+fi
+[[ "$rc" -eq 0 ]] || die "SET_THRESHOLDS trap failed (need positive i_audio_l/r load)"
 expect_ack_status "$hex" 0 || die "SET_THRESHOLDS trap: expected status=0x00"
 
 gs="$(fault_wait_flags "${FAULT_AUDIO_FLAG}" "${FAULT_WAIT_TRIES:-40}")" \

@@ -1,6 +1,6 @@
 # Bench UART tests — peripheral (display connected, no Q7)
 
-Scripts for **POWER_Controller** on a bench with:
+Scripts for **POWER_Controller_BNT** on a bench with:
 
 - board powered (12/5/3.3 V per schematic);
 - **scaler, LCD, backlight** connected (real load);
@@ -67,18 +67,16 @@ chmod +x *.sh
 | `21_fault_audio_current.sh` | 3 | `I_AUDIO_*` trap — `[SKIP]` if `PERIPH_AUDIO_HW_ENABLED=0` |
 | `29_calibrate_offset_neg_display.sh` | — | `CALIBRATE_OFFSET` rejected at `state=0x03` |
 | `31_simple_domains_periph.sh` | K | TOUCH/ETH toggle — `[SKIP]` if `PERIPH_TOUCH_HW_ENABLED=0` |
-| `10_sus_s3_manual.sh` | 6 | SUS_S3# → PWRBTN# procedure (manual) |
-| `33_pgood_mid_seq_manual.sh` | 6 | PGOOD drop mid-sequence → emergency off + fault (manual, inv. 44) |
 | `34_ota_confirm_reset_fault.sh` | OTA | reflash → `RESET_FAULT` confirm (needs `stm32flash`; optional `OTA_NRST_CMD`) |
 | `35_ota_unconfirmed_safe_hold.sh` | OTA | 3× NRST within 10s → `FAULT_BOOT_UNCONFIRMED`; not in `run_all` |
 
 Without flash calibration, current sensors often read **~1.5 A at state=0** — enabling SCALER/AUDIO can immediately latch `FAULT_SCALER` / `FAULT_AUDIO`. Scripts run `CALIBRATE_OFFSET` in `periph_prepare_zero_load` when needed.
 
-If **NSM2012 (U4) is not populated** on the backlight path (`IP+`/`IP-` jumpered), firmware must use `ENABLE_BL_CURRENT_SENSOR=0` in `Config/config.h`. UART tests then expect `i_backlight=-32768` and omit that channel from load/zero current checks (`TELEMETRY_I_CHANNELS`, `LOAD_I_CHANNELS` in `config.sh`).
+If **NSM2012 (U4) is not populated** on the backlight path (`IP+`/`IP-` jumpered), set `ENABLE_BL_CURRENT_SENSOR=0` in firmware and `PERIPH_BL_CURRENT_SENSOR_ENABLED=0` in `config.sh` (expect `i_backlight=-32768`, omit from `TELEMETRY_I_CHANNELS` / `LOAD_I_CHANNELS`). Default bench config assumes U4 is present.
 
-If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verify), `run_all_peripheral.sh` marks display-dependent scripts as **`[SKIP]`** instead of cascading **FAIL**. Tests **07** (audio), **22** (GET_VERSION), **23–25** (policy neg), **10** / **33** (manual) still run.
+If **`03_display_scaler_lcd_on.sh`** fails with **fault `0x2001`** (SCALER verify), `run_all_peripheral.sh` marks display-dependent scripts as **`[SKIP]`** instead of cascading **FAIL**. Tests **07** (audio), **22** (GET_VERSION), **23–25** (policy neg) still run.
 
-Bench fault traps cover `FAULT_SCALER` / `FAULT_LCD` / `FAULT_V12|V5|V3V3_RANGE` and optionally `FAULT_BACKLIGHT` / `FAULT_AUDIO`. Bits `FAULT_ETH1/2`, `FAULT_TOUCH`, `FAULT_PGOOD_LOST`, `FAULT_AMP_FAULTZ`, `FAULT_SEQ_ABORT` (except via **33** manual) are covered by host unit tests, not ADC benches. `FAULT_V24_RANGE` has no trap helpers yet.
+Bench fault traps cover `FAULT_SCALER` / `FAULT_LCD` / `FAULT_V12|V5|V3V3_RANGE` and optionally `FAULT_BACKLIGHT` / `FAULT_AUDIO`. Bits `FAULT_ETH1/2`, `FAULT_TOUCH`, `FAULT_PGOOD_LOST`, `FAULT_AMP_FAULTZ`, `FAULT_SEQ_ABORT` are covered by host unit tests, not ADC benches. `FAULT_V24_RANGE` has no trap helpers yet.
 
 ## Environment variables
 
@@ -88,21 +86,17 @@ Bench fault traps cover `FAULT_SCALER` / `FAULT_LCD` / `FAULT_V12|V5|V3V3_RANGE`
 | `SEQ_ON_WAIT_SEC` | `2.0` | Delay after SCALER+LCD ON |
 | `THRESH_I_LCD_TRAP_MA` | `50` | LCD overcurrent trap for block 3 |
 | `LOAD_I_MIN_MA` | `5` | Minimum plausible load current |
-| `PERIPH_AUDIO_HW_ENABLED` | `0` | `0` — AUDIO ON ожидаемо отклоняется (status=1); `1` — полный AUDIO + `21_fault_audio_current.sh` |
+| `PERIPH_AUDIO_HW_ENABLED` | `1` | `0` — AUDIO ON ожидаемо отклоняется (status=1); `1` — полный AUDIO + `21_fault_audio_current.sh` |
 | `PERIPH_TOUCH_HW_ENABLED` | `0` | `1` — `31_simple_domains_periph.sh` (TOUCH/ETH) |
-| `PERIPH_BL_CURRENT_SENSOR_ENABLED` | `0` | `1` — `20_fault_backlight_current.sh` (NSM2012 on BL shunt) |
+| `PERIPH_BL_CURRENT_SENSOR_ENABLED` | `1` | `1` — `20_fault_backlight_current.sh` (NSM2012 on BL shunt) |
 | `THRESH_I_SCALER_TRAP_MA` | `50` | Scaler overcurrent trap (block 3) |
 | `THRESH_I_BL_TRAP_MA` | `50` | Backlight overcurrent trap |
-| `RUN_SUS_S3_HW_TEST` | `0` | `1` — count block 6 as PASS after printing steps |
-| `RUN_PGOOD_MID_SEQ_HW_TEST` | `0` | `1` — count PGOOD mid-seq manual as PASS after printing steps |
 | `DISPLAY_SKIP_REASON` | (built-in EN string) | Message when display tests are skipped |
 
 ## Manual checks (not over UART)
 
 - **PB1 / PB0 / PB9** — domain voltages and backlight PWM (scope)
 - **PB8** — `RESET_BRIDGE` pulse
-- **PC15 / PC14** — SUS_S3# hold and PWRBTN# pulse
-- **PGOOD** — pull LOW mid display sequence (see `33_pgood_mid_seq_manual.sh`)
 - Compare currents with **DMM in series** if the bench allows
 
 ## Make targets

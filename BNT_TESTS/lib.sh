@@ -1,13 +1,13 @@
-# BVIT_TESTS lib — pure BusyBox ash + socat (no python/bash).
+# BNT_TESTS lib — pure BusyBox ash + socat (no python/bash).
 # shellcheck shell=sh
 
 # Caller must set SCRIPT_DIR to this directory before sourcing.
-_BVIT_DIR="${SCRIPT_DIR:-}"
-if [ -z "$_BVIT_DIR" ] || [ ! -f "$_BVIT_DIR/config.sh" ]; then
-  _BVIT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+_BNT_DIR="${SCRIPT_DIR:-}"
+if [ -z "$_BNT_DIR" ] || [ ! -f "$_BNT_DIR/config.sh" ]; then
+  _BNT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 fi
 # shellcheck source=config.sh
-. "$_BVIT_DIR/config.sh"
+. "$_BNT_DIR/config.sh"
 
 # CRC-8/ATM table (256 bytes as hex)
 _CRC8_TBL="00070e091c1b1215383f363124232a2d70777e796c6b6265484f464154535a5de0e7eee9fcfbf2f5d8dfd6d1c4c3cacd90979e998c8b8285a8afa6a1b4b3babdc7c0c9cedbdcd5d2fff8f1f6e3e4edeab7b0b9beabaca5a28f88818693949d9a2720292e3b3c35321f18111603040d0a5750595e4b4c45426f68616673747d7a898e878095929b9cb1b6bfb8adaaa3a4f9fef7f0e5e2ebecc1c6cfc8dddad3d4696e676075727b7c51565f584d4a4344191e171005020b0c21262f283d3a33344e49404752555c5b7671787f6a6d64633e39303722252c2b0601080f1a1d1413aea9a0a7b2b5bcbb9691989f8a8d8483ded9d0d7c2c5cccbe6e1e8effafdf4f3"
@@ -292,16 +292,24 @@ cmd_set_thresholds() {
   _ml=$((_mask & 255))
   _mh=$(( (_mask >> 8) & 255 ))
   _attempt=1
+  _last_hex=""
   while [ "$_attempt" -le 3 ]; do
     _hex="$(uart_tx_rx "$ACK_TIMEOUT_SEC" 0x07 "$_ml" "$_mh" "$@")" || _hex=""
     if [ -n "$_hex" ]; then
+      _last_hex="$_hex"
       sleep "${SET_THRESH_TX_DELAY_SEC:-0.2}"
-      printf '%s' "$_hex"
-      return 0
+      # Require a real SET_THRESHOLDS ACK (STX/CMD/LEN) — UART noise can look like status≠0.
+      if [ "$(hex_byte "$_hex" 0)" -eq 2 ] && [ "$(hex_byte "$_hex" 1)" -eq 7 ] \
+        && [ "$(hex_byte "$_hex" 2)" -eq 1 ] && expect_ack_status "$_hex" 0; then
+        printf '%s' "$_hex"
+        return 0
+      fi
+      log_info "SET_THRESHOLDS bad/NACK frame attempt=${_attempt}/3 hex=${_hex}" >&2
     fi
-    sleep 0.1
+    sleep 0.15
     _attempt=$((_attempt + 1))
   done
+  [ -n "$_last_hex" ] && printf '%s' "$_last_hex"
   return 1
 }
 
@@ -797,7 +805,7 @@ fault_set_i_audio_lr_max_ma() {
   _lo=$((_ma & 255)); _hi=$(( (_ma >> 8) & 255 ))
   cmd_set_thresholds_retry 0x1800 "$_lo" "$_hi" "$_lo" "$_hi"
 }
-fault_restore_i_audio_lr_max() { fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-800}"; }
+fault_restore_i_audio_lr_max() { fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-5000}"; }
 
 periph_get_current_ma() {
   case "$2" in
@@ -850,7 +858,9 @@ periph_fault_trap_i_ma() {
   else
     _trap=$((_i_ma / 2))
   fi
-  if [ "$_trap" -lt 5 ]; then _trap=5; fi
+  # Floor 1 mA (not 5): this board often has i_lcd ~3..11 mA — a 5 mA floor
+  # made FAULT_LCD traps impossible whenever load <= 5.
+  if [ "$_trap" -lt 1 ]; then _trap=1; fi
   if [ "$_i_ma" -le "$_trap" ]; then
     log_skip "${_channel}=${_i_ma} mA: cannot trap below load (I_MAX=${_trap} mA)"
     return 2
@@ -912,15 +922,53 @@ parse_get_version_hex() {
   printf 'git_hash=%s dirty=%s build_epoch=%s\n' "$_hash_s" "$_dirty" "$_epoch"
 }
 
-# --- OTA helpers (stm32flash; optional IC17 NRST via OTA_NRST_CMD) ---
+# --- OTA helpers (stm32flash + IC17 NRST after -g) ---
 
 ota_require_stm32flash() {
   command -v "${OTA_STM32FLASH:-stm32flash}" >/dev/null 2>&1 \
     || die "${OTA_STM32FLASH:-stm32flash} not found"
 }
 
-# BOOTLOADER_ENTER → stm32flash -w -v -g → wait for app PING.
-# Usage: ota_flash_app /path/to/POWER_Controller.bin
+# PCA9555 push-pull: every level must be written; --mode=exit hangs on this board.
+ic17_gpioset_write() {
+  if gpioset --help 2>&1 | grep -q -- '--mode'; then
+    gpioset --mode=time --usec="${IC17_PULSE_USEC:-20000}" \
+      "${IC17_GPIOCHIP:-gpiochip5}" "$@"
+  else
+    gpioset -c "${IC17_GPIOCHIP:-gpiochip5}" \
+      -t "${IC17_PULSE_USEC:-20000}us" "$@"
+  fi
+}
+
+# Application reboot only: BOOT0=0, NRST assert/release. Does not re-arm pending.
+ic17_nrst_pulse() {
+  command -v gpioset >/dev/null 2>&1 || die "gpioset not found (need IC17 NRST)"
+  _chip="${IC17_GPIOCHIP:-gpiochip5}"
+  _nrst="${IC17_LINE_NRST:-8}"
+  _boot0="${IC17_LINE_BOOT0:-9}"
+  log_info "IC17 NRST pulse (BOOT0=0) ${_chip} boot0=${_boot0} nrst=${_nrst}"
+  ic17_gpioset_write "${_boot0}=0" || die "IC17 BOOT0=0 failed"
+  ic17_gpioset_write "${_nrst}=0" || die "IC17 NRST=0 failed"
+  ic17_gpioset_write "${_nrst}=1" || die "IC17 NRST=1 failed"
+}
+
+# Run OTA_NRST_CMD if set, else built-in IC17 pulse, else interactive Enter.
+ota_run_nrst() {
+  if [ -n "${OTA_NRST_CMD:-}" ]; then
+    log_info "NRST: OTA_NRST_CMD"
+    sh -c "$OTA_NRST_CMD" || die "OTA_NRST_CMD failed"
+  elif command -v gpioset >/dev/null 2>&1; then
+    ic17_nrst_pulse
+  else
+    log_info "NRST: press Enter after NRST/power-cycle (gpioset/OTA_NRST_CMD unavailable)"
+    # BusyBox ash: plain read
+    read -r _
+  fi
+  sleep "${OTA_NRST_SETTLE_SEC:-1}"
+}
+
+# BOOTLOADER_ENTER → stm32flash -w -v -g → [IC17 NRST] → wait for app PING.
+# Usage: ota_flash_app /path/to/POWER_Controller_BNT.bin
 ota_flash_app() {
   _fw="$1"
   [ -n "$_fw" ] && [ -f "$_fw" ] || die "firmware bin not found: ${_fw:-<empty>}"
@@ -939,24 +987,21 @@ ota_flash_app() {
     -w "$_fw" -v -g "${OTA_FLASH_ADDR:-0x08000000}" \
     "$UART_DEVICE" || die "stm32flash write failed"
 
+  # ROM Go leaves UART dead on this board; NRST (BOOT0=0) starts app cleanly.
+  if [ "${OTA_POST_FLASH_NRST:-1}" = 1 ]; then
+    log_info "post-flash NRST (after stm32flash -g)"
+    ota_run_nrst
+  fi
+
   uart_wait_mcu_ready || die "MCU did not answer PING after OTA"
 }
 
 # Application reboot without BOOTLOADER_ENTER (does not re-arm pending).
-# Prefer OTA_NRST_CMD (IC17 NRST pulse). Without it — interactive Enter.
 ota_nrst_reboot() {
   _label="${1:-NRST reboot}"
-  if [ -n "${OTA_NRST_CMD:-}" ]; then
-    log_info "$_label: OTA_NRST_CMD"
-    uart_close
-    sh -c "$OTA_NRST_CMD" || die "OTA_NRST_CMD failed"
-  else
-    log_info "$_label: press Enter after NRST/power-cycle (<10s since last boot)"
-    uart_close
-    # BusyBox ash: plain read
-    read -r _
-  fi
-  sleep "${OTA_NRST_SETTLE_SEC:-1}"
+  log_info "$_label"
+  uart_close
+  ota_run_nrst
   uart_open
   _hex="$(cmd_ping)" || die "no PING after reboot ($_label)"
   expect_ack_status "$_hex" 170 || die "PING expected 0xAA ($_label)"

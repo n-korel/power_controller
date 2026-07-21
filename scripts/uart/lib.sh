@@ -1,4 +1,4 @@
-# UART protocol helpers for POWER_Controller (bench tools over USB-UART).
+# UART protocol helpers for POWER_Controller_BNT (bench tools over USB-UART).
 # shellcheck shell=bash
 
 _UART_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

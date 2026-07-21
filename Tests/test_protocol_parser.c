@@ -672,7 +672,7 @@ void test_dispatch_set_thresholds_rejects_extra_bytes(void)
 }
 
 /*
- * Spec (POWER_Controller.md §9): byte 0x02 starts a new packet (parser reset).
+ * Spec (POWER_Controller_BNT.md §9): byte 0x02 starts a new packet (parser reset).
  * Implementation: PS_READ_DATA / PS_READ_CRC ignore STX; only interbyte/packet
  * timeout or PS_WAIT_ETX (non-ETX) returns to PS_WAIT_STX.
  */

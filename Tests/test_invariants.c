@@ -259,7 +259,7 @@ void test_default_current_thresholds(void)
     TEST_ASSERT_EQUAL_UINT(2000U, THRESH_I_LCD_MAX);
     TEST_ASSERT_EQUAL_UINT(3000U, THRESH_I_BL_MAX);
     TEST_ASSERT_EQUAL_UINT(1500U, THRESH_I_SCALER_MAX);
-    TEST_ASSERT_EQUAL_UINT(800U,  THRESH_I_AUDIO_LR_MAX);
+    TEST_ASSERT_EQUAL_UINT(5000U, THRESH_I_AUDIO_LR_MAX);
 }
 
 /* ===== SUS_S3#/PWRBTN auto-start (Rules 8) ===== */
@@ -281,6 +281,7 @@ void test_audio_bridge_and_pgood_timings(void)
     /* Rules 9 — TPA3118 wake/shutdown delays */
     TEST_ASSERT_EQUAL_UINT(10U, AUDIO_SDZ_DELAY_MS);
     TEST_ASSERT_EQUAL_UINT(10U, AUDIO_MUTE_DELAY_MS);
+    TEST_ASSERT_EQUAL_UINT(500U, AUDIO_I_GRACE_MS);
 
     /* Rules 13 — bridge reset pulse */
     TEST_ASSERT_EQUAL_UINT(10U, BRIDGE_RST_PULSE_MS);

@@ -14,3 +14,11 @@ make bl-set BL_PERCENT=75
 make bl-set-pwm BL_PWM=800
 make bl-off
 make bl-on-display
+
+scp build/POWER_Controller_BNT.bin root@q7:/opt/BNT_STM32/
+
+export PATH="/opt/stm32flash:$PATH"
+cd /opt/BNT_STM32/BNT_TESTS
+FW_BIN=/opt/BNT_STM32/POWER_Controller_BNT.bin ./34_ota_confirm_reset_fault.sh
+
+md5sum build/POWER_Controller_BNT.bin

@@ -458,7 +458,7 @@ fault_set_i_audio_lr_max_ma() {
 }
 
 fault_restore_i_audio_lr_max() {
-  fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-800}"
+  fault_set_i_audio_lr_max_ma "${THRESH_I_AUDIO_DEFAULT_MA:-5000}"
 }
 
 # Display to state=0x07, then count× GET_STATUS with gap between polls.

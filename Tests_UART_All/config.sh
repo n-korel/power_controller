@@ -20,15 +20,16 @@ ACK_FRAME_LEN=6
 SEQ_ON_WAIT_SEC="${SEQ_ON_WAIT_SEC:-2.0}"
 SEQ_BL_WAIT_SEC="${SEQ_BL_WAIT_SEC:-4.0}"
 SEQ_DN_WAIT_SEC="${SEQ_DN_WAIT_SEC:-1.2}"
-AUDIO_SEQ_WAIT_SEC="${AUDIO_SEQ_WAIT_SEC:-0.25}"
+AUDIO_SEQ_WAIT_SEC="${AUDIO_SEQ_WAIT_SEC:-0.60}"
 
 # Ревизионные флаги периферии для проверки ожидаемого поведения POWER_CTRL.
 # 0 = домен аппаратно отключён в прошивке (ENABLE_*_HW==0), 1 = доступен.
-PERIPH_AUDIO_HW_ENABLED="${PERIPH_AUDIO_HW_ENABLED:-0}"
+# Согласовано с Config/config.h: всё кроме TOUCH.
+PERIPH_AUDIO_HW_ENABLED="${PERIPH_AUDIO_HW_ENABLED:-1}"
 PERIPH_TOUCH_HW_ENABLED="${PERIPH_TOUCH_HW_ENABLED:-0}"
-# 0 = U4 NSM2012 не установлен (IP+/IP- замкнуты), i_backlight=-32768 в GET_STATUS
-PERIPH_BL_CURRENT_SENSOR_ENABLED="${PERIPH_BL_CURRENT_SENSOR_ENABLED:-0}"
-TELEMETRY_I_CHANNELS="${TELEMETRY_I_CHANNELS:-i_lcd,i_scaler,i_audio_l,i_audio_r}"
+# 1 = U4 NSM2012 установлен, реальный i_backlight в GET_STATUS
+PERIPH_BL_CURRENT_SENSOR_ENABLED="${PERIPH_BL_CURRENT_SENSOR_ENABLED:-1}"
+TELEMETRY_I_CHANNELS="${TELEMETRY_I_CHANNELS:-i_lcd,i_backlight,i_scaler,i_audio_l,i_audio_r}"
 
 STATE_POLL_INTERVAL_SEC="${STATE_POLL_INTERVAL_SEC:-0.1}"
 STATE_POLL_TRIES="${STATE_POLL_TRIES:-40}"
@@ -51,7 +52,7 @@ THRESH_V3V3_MAX_MV=3600
 # Токи под нагрузкой (мА)
 LOAD_I_MIN_MA="${LOAD_I_MIN_MA:-5}"
 LOAD_I_MAX_MA="${LOAD_I_MAX_MA:-3200}"
-LOAD_I_CHANNELS="${LOAD_I_CHANNELS:-i_lcd,i_scaler}"
+LOAD_I_CHANNELS="${LOAD_I_CHANNELS:-i_lcd,i_scaler,i_backlight}"
 
 # Калибровка нуля (state=0x30, только ETH1|ETH2)
 TELEMETRY_I_ZERO_MIN_MA=-200
@@ -61,7 +62,7 @@ TELEMETRY_I_ZERO_MAX_MA=200
 THRESH_I_LCD_DEFAULT_MA=2000
 THRESH_I_BL_DEFAULT_MA=3000
 THRESH_I_SCALER_DEFAULT_MA=1500
-THRESH_I_AUDIO_DEFAULT_MA=800
+THRESH_I_AUDIO_DEFAULT_MA=5000
 # Фиксированные ловушки (fallback); в тестах fault по току — auto = load − margin
 THRESH_I_LCD_TRAP_MA="${THRESH_I_LCD_TRAP_MA:-50}"
 THRESH_I_BL_TRAP_MA="${THRESH_I_BL_TRAP_MA:-50}"
@@ -92,12 +93,6 @@ CALIBRATE_OFFSET_TIMEOUT_SEC=3.0
 # Секвенс SCALER: FAULT_SEQ_ABORT|FAULT_SCALER — блокирует зависимые display-тесты в run_all
 FAULT_DISPLAY_SEQ_BLOCK=0x2001
 DISPLAY_SKIP_REASON="${DISPLAY_SKIP_REASON:-SCALER sequence verify failed (fault 0x2001): check ~12 V at scaler and SCALER_POWER_M (PB1), SEQ_VERIFY_SCALER_MV=4000}"
-
-# Блок 6: ручная проверка SUS_S3# / PWRBTN#
-# RUN_SUS_S3_HW_TEST=1 — не пропускать шаг в run_all (всё равно без LA только инструкции)
-RUN_SUS_S3_HW_TEST="${RUN_SUS_S3_HW_TEST:-0}"
-# Инвариант 44: ручная проверка падения PGOOD mid-sequence
-RUN_PGOOD_MID_SEQ_HW_TEST="${RUN_PGOOD_MID_SEQ_HW_TEST:-0}"
 
 STRESS_GET_STATUS_COUNT=20
 STRESS_GET_STATUS_INTERVAL_SEC=0.05

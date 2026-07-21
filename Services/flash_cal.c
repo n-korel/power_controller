@@ -92,11 +92,11 @@ uint8_t flash_cal_calibrate(void)
         ADC_IDX_AUDIO_L_CURRENT, ADC_IDX_AUDIO_R_CURRENT
     };
 
-    uint16_t def = (uint16_t)((uint32_t)CURRENT_VOFFSET_MV_DEFAULT * ADC_RESOLUTION / ADC_VREF_MV);
     for (uint8_t i = 0; i < CURRENT_CHANNELS; i++) {
 #if (ENABLE_BL_CURRENT_SENSOR == 0U)
         if (i == 1U) {
-            cal.offset_raw[i] = def;
+            cal.offset_raw[i] = (uint16_t)((uint32_t)CURRENT_VOFFSET_MV_DEFAULT *
+                                           ADC_RESOLUTION / ADC_VREF_MV);
             continue;
         }
 #endif

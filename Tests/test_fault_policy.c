@@ -16,6 +16,7 @@ static int16_t  mock_current_ma[5];
 static uint8_t  mock_pgood = 1;
 static uint8_t  mock_faultz = 1;
 static uint8_t  mock_power_state;
+static uint8_t  mock_audio_oc_armed = 1;
 static uint16_t mock_force_off_called_with;
 static uint8_t  mock_force_off_call_count;
 static uint8_t  mock_safe_state_call_count;
@@ -26,6 +27,7 @@ uint8_t  adc_service_consume_new_sample(void) { return 1; }
 uint8_t  input_get_pgood(void)           { return mock_pgood; }
 uint8_t  input_get_faultz(void)          { return mock_faultz; }
 uint8_t  power_get_state(void)           { return mock_power_state; }
+uint8_t  power_audio_overcurrent_armed(void) { return mock_audio_oc_armed; }
 
 void power_force_off_domains(uint16_t domain_mask)
 {
@@ -67,6 +69,7 @@ void setUp(void)
     mock_pgood = 1;
     mock_faultz = 1;
     mock_power_state = 0;
+    mock_audio_oc_armed = 1;
     set_v_nominal();
     for (uint8_t i = 0; i < 5; i++) mock_current_ma[i] = 0;
 }
@@ -201,6 +204,55 @@ void test_faultz_active_low_confirms_after_5(void)
     fault_manager_process();
 
     TEST_ASSERT_TRUE(fault_get_flags() & FAULT_AMP_FAULTZ);
+}
+
+void test_audio_current_blanked_when_not_armed(void)
+{
+    mock_power_state = DOM_AUDIO;
+    mock_audio_oc_armed = 0;
+    mock_current_ma[3] = (int16_t)THRESH_I_AUDIO_LR_MAX + 1;
+    mock_current_ma[4] = (int16_t)THRESH_I_AUDIO_LR_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT * 2U; i++) {
+        fault_manager_process();
+    }
+
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+}
+
+void test_faultz_blanked_when_not_armed(void)
+{
+    mock_power_state = DOM_AUDIO;
+    mock_audio_oc_armed = 0;
+    mock_faultz = 0;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT * 2U; i++) {
+        fault_manager_process();
+    }
+
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_AMP_FAULTZ);
+    TEST_ASSERT_EQUAL_UINT8(0, mock_safe_state_call_count);
+}
+
+void test_audio_current_fault_after_arm_window(void)
+{
+    mock_power_state = DOM_AUDIO;
+    mock_audio_oc_armed = 0;
+    mock_current_ma[3] = (int16_t)THRESH_I_AUDIO_LR_MAX + 1;
+
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT; i++) {
+        fault_manager_process();
+    }
+    TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_AUDIO);
+
+    mock_audio_oc_armed = 1;
+    for (uint8_t i = 0; i < FAULT_CONFIRM_COUNT - 1; i++) {
+        fault_manager_process();
+        TEST_ASSERT_EQUAL_HEX16(0, fault_get_flags() & FAULT_AUDIO);
+    }
+    fault_manager_process();
+    TEST_ASSERT_TRUE(fault_get_flags() & FAULT_AUDIO);
 }
 
 void test_pgood_loss_confirms_after_5(void)
@@ -610,6 +662,9 @@ int main(void)
     RUN_TEST(test_current_fault_after_5_consecutive);
     RUN_TEST(test_audio_current_fault_after_5_consecutive);
     RUN_TEST(test_faultz_active_low_confirms_after_5);
+    RUN_TEST(test_audio_current_blanked_when_not_armed);
+    RUN_TEST(test_faultz_blanked_when_not_armed);
+    RUN_TEST(test_audio_current_fault_after_arm_window);
     RUN_TEST(test_pgood_loss_confirms_after_5);
     RUN_TEST(test_fault_is_latched);
     RUN_TEST(test_reset_fault_clears_all_flags);

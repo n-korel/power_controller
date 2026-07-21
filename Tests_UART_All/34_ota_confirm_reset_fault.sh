@@ -4,7 +4,7 @@
 #
 # Semi-manual / OTA: нужен stm32flash. Не входит в run_all_peripheral.sh.
 # Usage:
-#   FW_BIN=build/POWER_Controller.bin UART_DEVICE=/dev/ttyUSB0 \
+#   FW_BIN=build/POWER_Controller_BNT.bin UART_DEVICE=/dev/ttyUSB0 \
 #     ./34_ota_confirm_reset_fault.sh
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FW_BIN="${FW_BIN:-$REPO_ROOT/build/POWER_Controller.bin}"
+FW_BIN="${FW_BIN:-$REPO_ROOT/build/POWER_Controller_BNT.bin}"
 OTA_SCRIPT="${OTA_SCRIPT:-$REPO_ROOT/scripts/uart/ota_flash.sh}"
 
 if [[ ! -f "$FW_BIN" ]]; then

@@ -113,6 +113,8 @@ static uint32_t     aseq_timer;
  * auto-startup "safe-on" state (Rules 6.5: POWER_AUDIO=1 but amp safe)
  * from the full-on state entered after ASEQ_ON_DONE. */
 static uint8_t      amp_active;
+/* systick_ms at ASEQ_ON_DONE (unmute); used for AUDIO_I_GRACE_MS blanking. */
+static uint32_t     amp_unmute_ts;
 
 /* ===== Bridge reset SM ===== */
 static uint8_t  bridge_rst_active;
@@ -230,6 +232,7 @@ void power_manager_init(void)
     dseq           = DSEQ_IDLE;
     aseq           = ASEQ_IDLE;
     amp_active     = 0;
+    amp_unmute_ts  = 0;
     bridge_rst_active = 0;
     sus_low_tracking  = 0;
     pwrbtn_active     = 0;
@@ -317,6 +320,7 @@ void power_safe_state(void)
     sseq                     = STARTUP_IDLE;
     auto_startup_pending_aux = 0;
     amp_active               = 0;
+    amp_unmute_ts            = 0;
     bridge_rst_active = 0;
     sus_low_tracking  = 0;
     sus_low_since     = 0;
@@ -683,6 +687,7 @@ static void aseq_process(void)
     case ASEQ_ON_DONE:
         HAL_GPIO_WritePin(MUTE_GPIO_Port, MUTE_Pin, GPIO_PIN_RESET);
         amp_active = 1;
+        amp_unmute_ts = now;
         aseq = ASEQ_IDLE;
         break;
 
@@ -707,6 +712,7 @@ static void aseq_process(void)
         gpio_domain_set(DOM_AUDIO, 0);
         power_state &= (uint8_t)~DOM_AUDIO;
         amp_active = 0;
+        amp_unmute_ts = 0;
         aseq = ASEQ_OFF_DONE;
         break;
 
@@ -771,6 +777,18 @@ static void sus_s3_process(void)
 }
 
 /* ===== Public API ===== */
+uint8_t power_audio_overcurrent_armed(void)
+{
+    if (!(power_state & DOM_AUDIO) || !amp_active) {
+        return 0;
+    }
+#if (AUDIO_I_GRACE_MS == 0U)
+    return 1;
+#else
+    return ((systick_ms - amp_unmute_ts) >= AUDIO_I_GRACE_MS) ? 1U : 0U;
+#endif
+}
+
 uint8_t power_get_state(void)
 {
     return (uint8_t)(power_state | DOM_ETH1 | DOM_ETH2);
@@ -968,6 +986,7 @@ void power_force_off_domains(uint16_t domain_mask)
         power_state &= (uint8_t)~DOM_AUDIO;
         aseq = ASEQ_IDLE;
         amp_active = 0;
+        amp_unmute_ts = 0;
     }
 
     /* Display emergency shutdown */

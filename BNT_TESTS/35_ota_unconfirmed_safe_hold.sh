@@ -7,9 +7,10 @@
 # счётчик (arm_pending). Не входит в run_all.sh.
 #
 # Usage on Q7:
-#   scp build/POWER_Controller.bin root@q7:/tmp/
-#   FW_BIN=/tmp/POWER_Controller.bin UART_DEVICE=/dev/ttyS0 \
-#     OTA_NRST_CMD='your-ic17-nrst.sh' ./35_ota_unconfirmed_safe_hold.sh
+#   scp build/POWER_Controller_BNT.bin root@q7:/opt/BNT_STM32/
+#   cd /opt/BNT_STM32/BNT_TESTS
+#   FW_BIN=/opt/BNT_STM32/POWER_Controller_BNT.bin ./35_ota_unconfirmed_safe_hold.sh
+# (NRST via built-in IC17 / OTA_NRST_CMD; ota_flash_app already pulses NRST after -g)
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib.sh

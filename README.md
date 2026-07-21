@@ -1,4 +1,4 @@
-# POWER_Controller
+# POWER_Controller_BNT
 
 ## Роли MCU и Q7
 
@@ -310,7 +310,7 @@ POWER_CTRL  →  явное включение нужных доменов
 | GET_STATUS «короче 22»    | неверный парсер            | `LEN` в кадре = `0x16` (22 DATA)                |
 | BACKLIGHT `status=1`      | нет SCALER/LCD             | поле `state` в GET_STATUS                       |
 | После RESET_FAULT всё OFF | норма                      | нужен POWER_CTRL                                |
-| Токи на max               | клиппинг АЦП               | см. POWER_Controller.md                         |
+| Токи на max               | клиппинг АЦП               | см. POWER_Controller_BNT.md                         |
 
 ---
 
@@ -336,7 +336,7 @@ MCU также управляет (без отдельных UART-полей): P
 | 2. Прошивка | Q7 → ROM bootloader | STM32 USART bootloader (`stm32flash`) | `.bin` записан во flash       |
 | 3. Старт    | MCU                 | —                                     | новая прошивка с `0x08000000` |
 
-**Параметры:** UART0, **115200 8N1**, без flow control. Flash MCU — **64 КБ**, база **`0x08000000`**. Образ: `build/POWER_Controller.bin` (после `make`).
+**Параметры:** UART0, **115200 8N1**, без flow control. Flash MCU — **64 КБ**, база **`0x08000000`**. Образ: `build/POWER_Controller_BNT.bin` (после `make`).
 
 ```mermaid
 sequenceDiagram
@@ -395,7 +395,7 @@ sleep 0.5   # USB-UART может дёрнуть DTR → reset MCU
 
 ```bash
 stm32flash -b 115200 \
-  -w build/POWER_Controller.bin \
+  -w build/POWER_Controller_BNT.bin \
   -v \
   -g 0x08000000 \
   "$UART_DEVICE"

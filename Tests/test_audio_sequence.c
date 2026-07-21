@@ -14,6 +14,14 @@
 
 #include "power_manager.c"
 
+static void tick_ms(uint32_t ms)
+{
+    for (uint32_t i = 0; i < ms; i++) {
+        systick_ms++;
+        power_manager_process();
+    }
+}
+
 void setUp(void)
 {
     pth_reset();
@@ -75,6 +83,25 @@ void test_aseq_on_full_order_and_timing(void)
     TEST_ASSERT_TRUE(i_pwr >= 0);
     TEST_ASSERT_TRUE(i_sdz > i_pwr);
     TEST_ASSERT_TRUE(i_mut > i_sdz);
+}
+
+void test_audio_overcurrent_armed_after_unmute_grace(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0, power_audio_overcurrent_armed());
+
+    TEST_ASSERT_EQUAL_UINT8(0, power_ctrl_request(DOM_AUDIO, DOM_AUDIO));
+    while (!amp_active) {
+        tick_ms(1);
+        TEST_ASSERT_TRUE(systick_ms < 10000U);
+    }
+    TEST_ASSERT_TRUE(power_state & DOM_AUDIO);
+    TEST_ASSERT_EQUAL_UINT8(0, power_audio_overcurrent_armed());
+
+    tick_ms(AUDIO_I_GRACE_MS - 1U);
+    TEST_ASSERT_EQUAL_UINT8(0, power_audio_overcurrent_armed());
+
+    tick_ms(1);
+    TEST_ASSERT_EQUAL_UINT8(1, power_audio_overcurrent_armed());
 }
 
 /* ===== ASEQ OFF (Rules §9.2) ===== */
@@ -199,6 +226,7 @@ int main(void)
     RUN_TEST(test_audio_power_ctrl_on_is_rejected_when_hw_disabled);
 #else
     RUN_TEST(test_aseq_on_full_order_and_timing);
+    RUN_TEST(test_audio_overcurrent_armed_after_unmute_grace);
     RUN_TEST(test_aseq_off_full_order_and_timing);
     RUN_TEST(test_aseq_on_from_safe_on_runs_partial_sdz_mute_only);
     RUN_TEST(test_aseq_on_while_amp_active_is_noop);

@@ -381,7 +381,7 @@ def parse_ioc_iwdg(text: str) -> dict[str, str]:
     for key in ("Prescaler", "Reload", "Window"):
         m = re.search(rf"^\s*IWDG\.{key}\s*=\s*(.+?)\s*$", text, re.M)
         if not m:
-            die(f"POWER_Controller.ioc: missing IWDG.{key}")
+            die(f"POWER_Controller_BNT.ioc: missing IWDG.{key}")
         out[key] = m.group(1).strip()
     return out
 
@@ -554,7 +554,7 @@ def main() -> int:
     adc_yaml_path = os.path.join(repo_root, "contract", "adc_channels.yaml")
     proto_yaml_path = os.path.join(repo_root, "contract", "protocol.yaml")
     config_h_path = os.path.join(repo_root, "Config", "config.h")
-    ioc_path = os.path.join(repo_root, "POWER_Controller.ioc")
+    ioc_path = os.path.join(repo_root, "POWER_Controller_BNT.ioc")
     iwdg_c_path = os.path.join(repo_root, "Core", "Src", "iwdg.c")
     main_c_path = os.path.join(repo_root, "Core", "Src", "main.c")
     app_c_path = os.path.join(repo_root, "Services", "app.c")
@@ -742,7 +742,7 @@ def main() -> int:
     if main_c.find("HAL_IWDG_Refresh(") < main_c.find("while (1)"):
         die("main.c: HAL_IWDG_Refresh must be inside main while(1) loop")
 
-    # Main-loop call order (Rules invariant #49; POWER_Controller.md §0.2):
+    # Main-loop call order (Rules invariant #49; POWER_Controller_BNT.md §0.2):
     # uart -> adc -> input -> power -> fault -> bootloader -> iwdg refresh
     #
     # We enforce this by extracting the first while(1) block and checking the
